@@ -200,7 +200,7 @@ export const mockTickets: Ticket[] = [
     public_number: 1048,
     user_id: mockUsers.items[1].id,
     assigned_to_user_id: null,
-    subject: "WireGuard profile disconnects on iOS",
+    subject: "VLESS connection drops on iOS",
     category: "connection",
     priority: "urgent",
     status: "open",
@@ -251,7 +251,7 @@ export const mockTicketDetails: Record<string, TicketDetail> = Object.fromEntrie
           sender_user_id: ticket.user_id,
           message_type: "message",
           body: index === 0
-            ? "The VPN profile disconnects every few minutes on my iPhone. I already reinstalled it."
+            ? "The VLESS connection drops every few minutes on my iPhone. I already reconfigured the client."
             : index === 1
               ? "The invitation link opens, but joining the family group fails."
               : "I uploaded the receipt yesterday. Could you verify the payment status?",

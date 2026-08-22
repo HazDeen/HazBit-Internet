@@ -83,13 +83,13 @@ export const mockReferral: ReferralStatistics = {
 };
 
 export const mockTickets: Ticket[] = [
-  { id: "0192aa10-1111-7000-9000-000000000001", public_number: 1048, user_id: mockOverview.user.id, assigned_to_user_id: null, subject: "WireGuard profile disconnects on iOS", category: "connection", priority: "high", status: "waiting_user", last_message_at: new Date(now - 9 * 60_000).toISOString(), closed_at: null, version: 3, created_at: iso(-1), updated_at: new Date(now - 9 * 60_000).toISOString() },
+  { id: "0192aa10-1111-7000-9000-000000000001", public_number: 1048, user_id: mockOverview.user.id, assigned_to_user_id: null, subject: "VLESS connection drops on iOS", category: "connection", priority: "high", status: "waiting_user", last_message_at: new Date(now - 9 * 60_000).toISOString(), closed_at: null, version: 3, created_at: iso(-1), updated_at: new Date(now - 9 * 60_000).toISOString() },
   { id: "0192aa10-1111-7000-9000-000000000002", public_number: 1019, user_id: mockOverview.user.id, assigned_to_user_id: null, subject: "Payment receipt review", category: "payment", priority: "normal", status: "closed", last_message_at: iso(-21), closed_at: iso(-21), version: 4, created_at: iso(-22), updated_at: iso(-21) },
 ];
 
 export const mockTicketDetails: Record<string, TicketDetail> = {
   [mockTickets[0].id]: { ticket: mockTickets[0], messages: [
-    { id: "0192ab10-1111-7000-9000-000000000001", ticket_id: mockTickets[0].id, sender_user_id: mockOverview.user.id, message_type: "message", body: "The VPN profile disconnects every few minutes on my iPhone. I already reinstalled it.", created_at: iso(-1) },
+    { id: "0192ab10-1111-7000-9000-000000000001", ticket_id: mockTickets[0].id, sender_user_id: mockOverview.user.id, message_type: "message", body: "The VLESS connection drops every few minutes on my iPhone. I already reconfigured the client.", created_at: iso(-1) },
     { id: "0192ab10-1111-7000-9000-000000000002", ticket_id: mockTickets[0].id, sender_user_id: null, message_type: "message", body: "Thanks — we refreshed your device session. Please reconnect once and tell us if it remains stable.", created_at: new Date(now - 9 * 60_000).toISOString() },
   ] },
   [mockTickets[1].id]: { ticket: mockTickets[1], messages: [{ id: "0192ab10-1111-7000-9000-000000000003", ticket_id: mockTickets[1].id, sender_user_id: null, message_type: "message", body: "Your payment was approved and the subscription was extended.", created_at: iso(-21) }] },

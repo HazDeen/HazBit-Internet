@@ -268,7 +268,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
         <div className="sidebar-foot">
           <div className="system-card">
             <div className="system-card-head"><span className="live-dot" /> {t("Systems nominal")}</div>
-            <div><span>API</span><b>42 ms</b></div><div><span>{t("VPN sync")}</span><b>99.98%</b></div>
+            <div><span>API</span><b>{t("Available")}</b></div><div><span>{t("VLESS sync")}</span><b>{t("Synced")}</b></div>
           </div>
           <button className="admin-profile" onClick={logout}>
             <span className="avatar">HZ</span><span><b>Hazbit Admin</b><small>{t("Super admin")}</small></span><LogOut size={16} />

@@ -5,6 +5,11 @@
 STEP 5 реализует production-oriented VPN provisioning boundary для приложенной
 Remnawave OpenAPI v3.3.2:
 
+Текущая продуктовая конфигурация Hazbit использует **VLESS**. Клиенты получают
+subscription URL от Remnawave и передают его совместимому VLESS-клиенту; UI не
+должен обещать другой протокол, конкретный узел или статическую задержку, которых
+нет в подтверждённом API state.
+
 - отдельный deployable `remnawave-adapter` FastAPI service;
 - typed panel client и versioned private API `/internal/v1`;
 - bearer service authentication и production HTTPS guards;
