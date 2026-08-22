@@ -1,0 +1,13 @@
+{
+  "name": "Hazbit Telegram Mini App",
+  "short_name": "Hazbit",
+  "description": "Hazbit private network inside Telegram.",
+  "start_url": "/#home",
+  "display": "standalone",
+  "background_color": "#07100d",
+  "theme_color": "#07100d",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/hazbit-telegram.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

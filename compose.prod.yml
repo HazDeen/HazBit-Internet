@@ -1,0 +1,149 @@
+name: hazbit-vpn
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      HAZBIT_PAYMENT_BUCKET: ${HAZBIT_PAYMENT_BUCKET:-hazbit-payment-evidence}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$HAZBIT_PAYMENT_BUCKET"
+        mc anonymous set none "local/$$HAZBIT_PAYMENT_BUCKET"
+    networks: [backend]
+
+  remnawave-adapter:
+    build:
+      context: .
+      dockerfile: deploy/remnawave-adapter.Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file: ${HAZBIT_ENV_FILE:-./deploy/.env.production}
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
+  platform:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file: ${HAZBIT_ENV_FILE:-./deploy/.env.production}
+    environment:
+      HAZBIT_VPN__ADAPTER__BASE_URL: http://remnawave-adapter:8010
+      HAZBIT_VPN__ADAPTER__ALLOW_INSECURE_PRIVATE_URL: "true"
+      HAZBIT_PAYMENTS__STORAGE__ENDPOINT_URL: http://minio:9000
+      HAZBIT_PAYMENTS__STORAGE__BUCKET: ${HAZBIT_PAYMENT_BUCKET:-hazbit-payment-evidence}
+      HAZBIT_PAYMENTS__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      HAZBIT_PAYMENTS__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      remnawave-adapter:
+        condition: service_healthy
+    networks: [backend]
+
+  caddy:
+    build:
+      context: .
+      dockerfile: deploy/caddy.Dockerfile
+    restart: unless-stopped
+    environment:
+      HAZBIT_DOMAIN: ${HAZBIT_DOMAIN}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      platform:
+        condition: service_healthy
+    networks: [backend]
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

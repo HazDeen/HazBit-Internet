@@ -1,0 +1,13 @@
+{
+  "name": "Hazbit VPN",
+  "short_name": "Hazbit",
+  "description": "Private VPN access and subscription management.",
+  "start_url": "/#overview",
+  "display": "standalone",
+  "background_color": "#080d0b",
+  "theme_color": "#080d0b",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/hazbit-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

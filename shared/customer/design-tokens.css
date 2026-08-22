@@ -1,0 +1,16 @@
+:root {
+  --hazbit-brand-primary: #6ea8fe;
+  --hazbit-brand-secondary: #a78bfa;
+  --hazbit-brand-tertiary: #f078c8;
+  --hazbit-brand-primary-soft: rgb(110 168 254 / 12%);
+  --hazbit-brand-secondary-soft: rgb(167 139 250 / 12%);
+  --hazbit-brand-gradient: linear-gradient(135deg, #6ea8fe 0%, #a78bfa 52%, #f078c8 100%);
+  --hazbit-brand-mint: #5ce1b8;
+  --hazbit-brand-mint-strong: #34c89b;
+  --hazbit-brand-blue: #7aa9ed;
+  --hazbit-brand-violet: #a694ed;
+  --hazbit-brand-amber: #e9ae57;
+  --hazbit-brand-red: #ef7d80;
+  --hazbit-font-body: "DM Sans", system-ui, sans-serif;
+  --hazbit-font-display: Manrope, system-ui, sans-serif;
+}
