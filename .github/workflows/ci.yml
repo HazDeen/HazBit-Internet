@@ -72,4 +72,4 @@ jobs:
       - name: Validate Compose model
         run: HAZBIT_ENV_FILE=./deploy/.env.production.example docker compose --env-file deploy/.env.production.example -f compose.prod.yml config --quiet
       - name: Build production images
-        run: docker compose --env-file deploy/.env.production.example -f compose.prod.yml build platform remnawave-adapter caddy
+        run: HAZBIT_ENV_FILE=./deploy/.env.production.example docker compose --env-file deploy/.env.production.example -f compose.prod.yml build platform remnawave-adapter caddy
