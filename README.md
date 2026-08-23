@@ -60,5 +60,10 @@ cp deploy/.env.production.example deploy/.env.production
 docker compose --env-file deploy/.env.production -f compose.prod.yml up -d --build
 ```
 
+Startup applies migrations, idempotently creates the initial plan catalog and first
+`SUPER_ADMIN`, verifies PostgreSQL/Redis/catalog readiness, and refuses to expose the
+API when required launch data is missing. SMTP delivery can be checked from the
+running platform container with `python -m app.operations.cli test-email --to ...`.
+
 See the [STEP 15 runbook](docs/operations/step-15-release-hardening.md) before the
 first VPS launch, especially DNS, secrets, backup and restore requirements.

@@ -54,7 +54,58 @@ openssl rand -base64 48
 `POSTGRES_PASSWORD` и `HAZBIT_DATABASE__URL`, а также `REDIS_PASSWORD` и
 `HAZBIT_REDIS__URL`, обязаны совпадать.
 
-Запуск и проверка:
+### Первый администратор и тарифы
+
+Первый запуск выполняет idempotent bootstrap после миграций. Он создаёт каталог
+`Basic`, `Premium`, `Family`, подтверждённую email identity владельца, роли `USER` и
+`SUPER_ADMIN`, а также указанные реальные цены. Повторный restart не создаёт
+дубликаты, не откатывает изменённые через Admin Panel цены и не активирует заново
+отключённые администратором тарифы. Email из `.env` используется для recovery только
+если в системе не осталось ни одного активного `SUPER_ADMIN`.
+
+Указать email владельца и цены в minor units (`49900` = `499.00 RUB`):
+
+```dotenv
+HAZBIT_LAUNCH__SUPER_ADMIN_EMAIL=owner@your-domain.ru
+HAZBIT_LAUNCH__PLAN_PRICES=[{"plan_slug":"basic","term_months":1,"duration_days":30,"currency":"RUB","amount_minor":49900},{"plan_slug":"premium","term_months":1,"duration_days":30,"currency":"RUB","amount_minor":79900},{"plan_slug":"family","term_months":1,"duration_days":30,"currency":"RUB","amount_minor":119900}]
+```
+
+Значения выше показывают формат, а не задают коммерческое решение: перед deploy
+заменить суммы на фактические. Production-конфигурация отклоняет пустой email,
+нулевые суммы и отсутствие цены хотя бы для одного из трёх тарифов.
+
+### SMTP для Email OTP
+
+Для порта `587` использовать STARTTLS:
+
+```dotenv
+HAZBIT_AUTH__EMAIL__BACKEND=smtp
+HAZBIT_AUTH__EMAIL__FROM_ADDRESS=no-reply@your-domain.ru
+HAZBIT_AUTH__EMAIL__FROM_NAME=Hazbit
+HAZBIT_AUTH__EMAIL__SMTP_HOST=smtp.provider.example
+HAZBIT_AUTH__EMAIL__SMTP_PORT=587
+HAZBIT_AUTH__EMAIL__SMTP_USERNAME=no-reply@your-domain.ru
+HAZBIT_AUTH__EMAIL__SMTP_PASSWORD=replace-with-smtp-key
+HAZBIT_AUTH__EMAIL__SMTP_START_TLS=true
+HAZBIT_AUTH__EMAIL__SMTP_USE_TLS=false
+```
+
+Для implicit TLS на порту `465` выставить `SMTP_START_TLS=false` и
+`SMTP_USE_TLS=true`. Одновременное включение двух TLS-режимов запрещено. На DNS
+домена отправителя настроить SPF, DKIM и DMARC; SMTP key хранить только в
+`deploy/.env.production`.
+
+Рекомендуемый запуск одной проверяемой командой:
+
+```bash
+chmod +x deploy/scripts/launch.sh
+deploy/scripts/launch.sh
+```
+
+Скрипт последовательно проверяет Compose, собирает образы, валидирует production
+settings до открытия сервиса, запускает stack, повторяет preflight внутри рабочего
+контейнера и отправляет тестовое письмо первому `SUPER_ADMIN`. Эквивалентный ручной
+запуск и проверка:
 
 ```bash
 docker compose --env-file deploy/.env.production -f compose.prod.yml config --quiet
@@ -62,6 +113,19 @@ docker compose --env-file deploy/.env.production -f compose.prod.yml up -d --bui
 docker compose --env-file deploy/.env.production -f compose.prod.yml ps
 curl -fsS https://api.example.com/health/ready
 ```
+
+Entry point автоматически выполняет миграции, bootstrap и launch preflight.
+Preflight проверяет PostgreSQL, Redis, наличие активных цен и роль первого
+`SUPER_ADMIN`; при неполной конфигурации API не откроется.
+
+После старта отправить реальное тестовое письмо:
+
+```bash
+docker compose --env-file deploy/.env.production -f compose.prod.yml exec platform \
+  python -m app.operations.cli test-email
+```
+
+Только после получения письма открывать публичный вход для пользователей.
 
 Caddy сам получает и обновляет TLS-сертификаты. Backend применяет Alembic migrations,
 регистрирует Telegram webhooks и только затем запускает PM2. Ошибка Telegram API не

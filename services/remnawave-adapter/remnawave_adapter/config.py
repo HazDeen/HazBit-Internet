@@ -34,6 +34,8 @@ class Settings(BaseSettings):
                     raise ValueError(f"{name} token must be replaced for production")
             if self.panel_base_url.scheme != "https":
                 raise ValueError("Remnawave panel must use HTTPS in production")
+            if "example.com" in str(self.panel_base_url).casefold():
+                raise ValueError("Remnawave panel placeholder must be replaced for production")
         return self
 
 

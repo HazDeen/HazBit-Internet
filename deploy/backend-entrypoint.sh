@@ -14,6 +14,9 @@ until alembic upgrade head; do
     sleep 2
 done
 
+python -m app.operations.cli bootstrap
+python -m app.operations.cli preflight
+
 if [ "${HAZBIT_CONFIGURE_TELEGRAM_WEBHOOKS:-true}" = "true" ]; then
     if ! python -m app.workers.setup_telegram_bots; then
         echo "Telegram webhook setup failed; API and workers will still start" >&2

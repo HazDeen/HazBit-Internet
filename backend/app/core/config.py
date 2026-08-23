@@ -112,11 +112,39 @@ class EmailSettings(BaseModel):
 
     backend: Literal["console", "smtp"] = "console"
     from_address: EmailStr = "no-reply@example.com"
+    from_name: str = Field(default="Hazbit", min_length=1, max_length=120)
     smtp_host: str | None = None
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     smtp_start_tls: bool = True
+    smtp_use_tls: bool = False
+
+    @field_validator("smtp_host", "smtp_username", mode="before")
+    @classmethod
+    def normalize_optional_smtp_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("smtp_password", mode="before")
+    @classmethod
+    def normalize_optional_smtp_password(
+        cls, value: str | SecretStr | None
+    ) -> str | SecretStr | None:
+        if value is None:
+            return None
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        return value if raw else None
+
+    @model_validator(mode="after")
+    def validate_smtp_transport(self) -> Self:
+        if self.smtp_start_tls and self.smtp_use_tls:
+            raise ValueError("SMTP STARTTLS and implicit TLS cannot both be enabled")
+        if (self.smtp_username is None) != (self.smtp_password is None):
+            raise ValueError("SMTP username and password must be configured together")
+        return self
 
 
 class CookieSettings(BaseModel):
@@ -257,6 +285,33 @@ class FamilySettings(BaseModel):
     invite_limit_per_day: int = Field(default=20, ge=1, le=200)
 
 
+class LaunchPlanPriceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_slug: Literal["basic", "premium", "family"]
+    term_months: Literal[1, 3, 6, 12] = 1
+    duration_days: int = Field(default=30, ge=1, le=3660)
+    currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
+    amount_minor: int = Field(gt=0)
+
+
+class LaunchSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    super_admin_email: EmailStr | None = None
+    plan_prices: list[LaunchPlanPriceSettings] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_prices(self) -> Self:
+        keys = [
+            (price.plan_slug, price.term_months, price.currency)
+            for price in self.plan_prices
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError("launch plan prices must be unique by plan, term, and currency")
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -299,6 +354,7 @@ class Settings(BaseSettings):
     promotions: PromoSettings = Field(default_factory=PromoSettings)
     support: SupportSettings = Field(default_factory=SupportSettings)
     families: FamilySettings = Field(default_factory=FamilySettings)
+    launch: LaunchSettings = Field(default_factory=LaunchSettings)
 
     @field_validator("api_v1_prefix")
     @classmethod
@@ -324,6 +380,8 @@ class Settings(BaseSettings):
             self._validate_production_bots()
             self._validate_production_payments()
             self._validate_production_referrals()
+            self._validate_production_launch()
+            self._validate_production_hosts()
         return self
 
     def _validate_production_auth(self) -> None:
@@ -389,6 +447,29 @@ class Settings(BaseSettings):
     def _validate_production_referrals(self) -> None:
         if "example_bot" in self.referrals.share_url_prefix:
             raise ValueError("production referral share URL must use the real Telegram bot")
+
+    def _validate_production_launch(self) -> None:
+        if self.launch.super_admin_email is None:
+            raise ValueError("first super admin email is required in production")
+        configured_plans = {price.plan_slug for price in self.launch.plan_prices}
+        missing_plans = {"basic", "premium", "family"} - configured_plans
+        if missing_plans:
+            missing = ", ".join(sorted(missing_plans))
+            raise ValueError(f"production launch prices are missing for: {missing}")
+
+    def _validate_production_hosts(self) -> None:
+        values = [
+            *self.allowed_hosts,
+            *self.cors_origins,
+            str(self.auth.email.from_address),
+            self.auth.email.smtp_host or "",
+            str(self.launch.super_admin_email or ""),
+            str(self.telegram_bots.webhook_base_url),
+            str(self.telegram_bots.mini_app_url),
+            str(self.telegram_bots.admin_app_url),
+        ]
+        if any("example.com" in value.casefold() for value in values):
+            raise ValueError("example.com placeholders must be replaced for production")
 
 
 @lru_cache(maxsize=1)

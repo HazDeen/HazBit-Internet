@@ -101,7 +101,7 @@ async def test_family_membership_projects_and_revokes_shared_entitlement(
                     "INSERT INTO app.plan_versions "
                     "(id, plan_id, version, device_limit, family_member_limit, "
                     "traffic_limit_bytes, remnawave_policy, valid_from) VALUES "
-                    "(:id, :plan_id, 1, 10, 3, 0, CAST(:policy AS jsonb), :valid_from)"
+                    "(:id, :plan_id, 1, 10, 3, NULL, CAST(:policy AS jsonb), :valid_from)"
                 ),
                 {
                     "id": plan_version_id,
