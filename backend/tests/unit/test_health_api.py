@@ -40,7 +40,7 @@ def test_liveness_does_not_depend_on_database(test_settings: Settings) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "Hazbit VPN Platform API",
+        "service": "Hazbit Platform API",
         "version": "0.1.0",
         "environment": "test",
         "checks": None,

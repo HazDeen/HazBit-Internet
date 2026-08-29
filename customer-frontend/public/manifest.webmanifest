@@ -1,7 +1,7 @@
 {
-  "name": "Hazbit VPN",
+  "name": "Hazbit",
   "short_name": "Hazbit",
-  "description": "Private VPN access and subscription management.",
+  "description": "Private access and subscription management.",
   "start_url": "/#overview",
   "display": "standalone",
   "background_color": "#080d0b",

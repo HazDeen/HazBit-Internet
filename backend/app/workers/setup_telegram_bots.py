@@ -40,7 +40,7 @@ async def run() -> None:
             {
                 "menu_button": {
                     "type": "web_app",
-                    "text": "Hazbit VPN",
+                    "text": "Hazbit",
                     "web_app": {"url": str(settings.telegram_bots.mini_app_url)},
                 }
             },

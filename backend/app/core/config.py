@@ -390,7 +390,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Hazbit VPN Platform API"
+    app_name: str = "Hazbit Platform API"
     app_version: str = "0.1.0"
     environment: Literal["local", "test", "staging", "production"] = "local"
     debug: bool = False

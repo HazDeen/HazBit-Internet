@@ -1,6 +1,6 @@
-# Hazbit VPN Backend
+# Hazbit Backend
 
-FastAPI foundation for the Hazbit VPN subscription platform.
+FastAPI foundation for the Hazbit subscription platform.
 
 ```bash
 python3 -m venv .venv

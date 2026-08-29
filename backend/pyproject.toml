@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hazbit-vpn-backend"
 version = "0.1.0"
-description = "Hazbit VPN subscription platform backend"
+description = "Hazbit subscription platform backend"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "aiosmtplib>=3.0,<6",

@@ -1,3 +1,3 @@
-"""Hazbit VPN Platform API."""
+"""Hazbit Platform API."""
 
 __version__ = "0.1.0"

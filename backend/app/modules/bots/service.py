@@ -179,7 +179,7 @@ class TelegramBotService:
                 )
                 await self._customer.send_message(
                     message.chat.id,
-                    "Для продолжения подпишитесь на официальный канал Hazbit VPN.",
+                    "Для продолжения подпишитесь на официальный канал Hazbit.",
                     reply_markup={"inline_keyboard": rows},
                 )
                 return
@@ -216,7 +216,7 @@ class TelegramBotService:
             self._session, identity.user_id, self._settings.billing.currency
         )
         text = (
-            "<b>Статус Hazbit VPN</b>\n\n"
+            "<b>Статус Hazbit</b>\n\n"
             f"Подписка: <b>{subscription_text}</b>\n"
             f"Баланс: <b>{balance / 100:,.2f} {escape(self._settings.billing.currency)}</b>\n"
             f"VPN: <b>{escape(vpn or 'синхронизация')}</b>\n"
