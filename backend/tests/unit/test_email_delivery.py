@@ -53,3 +53,31 @@ def test_smtp_tls_modes_are_mutually_exclusive() -> None:
 def test_smtp_credentials_must_be_configured_together() -> None:
     with pytest.raises(ValueError, match="configured together"):
         EmailSettings(smtp_username="smtp-user")
+
+
+@pytest.mark.asyncio
+async def test_smtp_sender_builds_staff_invitation(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_send(message: EmailMessage, **kwargs: Any) -> None:
+        captured["message"] = message
+
+    monkeypatch.setattr("app.modules.auth.email.aiosmtplib.send", fake_send)
+    sender = SmtpEmailSender(
+        EmailSettings(
+            backend="smtp",
+            from_address="no-reply@hazdeen.xyz",
+            smtp_host="smtp.hazdeen.xyz",
+        )
+    )
+
+    await sender.send_staff_invitation(
+        email="operator@hazdeen.xyz",
+        invitation_url="https://admin.hazdeen.xyz/#staff-invite?token=secret",
+        roles=["support"],
+        expires_hours=72,
+    )
+
+    message = captured["message"]
+    assert "operator@hazdeen.xyz" == message["To"]
+    assert "staff-invite?token=secret" in message.get_body(preferencelist=("html",)).get_content()

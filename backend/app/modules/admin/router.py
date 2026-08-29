@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.features import FeatureKey
 from app.modules.admin.dependencies import AdminServiceDependency
 from app.modules.admin.schemas import (
     AdminDashboardResponse,
@@ -12,8 +13,11 @@ from app.modules.admin.schemas import (
     AdminFamilyActionRequest,
     AdminFamilyGroupPage,
     AdminFamilyGroupResponse,
+    AdminFeatureResponse,
+    AdminNodeActionRequest,
     AdminPaymentPage,
     AdminPlanResponse,
+    AdminRemnawaveNodeResponse,
     AdminSettingsResponse,
     AdminSubscriptionPage,
     AdminSubscriptionSummary,
@@ -25,15 +29,36 @@ from app.modules.admin.schemas import (
     CreateAdminPlanRequest,
     CreateAdminPlanVersionRequest,
     ExtendSubscriptionRequest,
+    UpdateAdminFeatureRequest,
     UpdateAdminPlanRequest,
 )
-from app.modules.auth.dependencies import require_roles
-from app.modules.auth.enums import Role
+from app.modules.auth.dependencies import require_permissions, require_roles
+from app.modules.auth.enums import Permission, Role
 from app.modules.auth.service import Principal
 
 AdminPrincipal = Annotated[
     Principal,
     Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+]
+SuperAdminPrincipal = Annotated[Principal, Depends(require_roles(Role.SUPER_ADMIN))]
+DashboardPrincipal = Annotated[Principal, Depends(require_permissions(Permission.DASHBOARD_READ))]
+UsersReadPrincipal = Annotated[Principal, Depends(require_permissions(Permission.USERS_READ))]
+UsersManagePrincipal = Annotated[Principal, Depends(require_permissions(Permission.USERS_MANAGE))]
+SubscriptionsReadPrincipal = Annotated[
+    Principal, Depends(require_permissions(Permission.SUBSCRIPTIONS_READ))
+]
+SubscriptionsManagePrincipal = Annotated[
+    Principal, Depends(require_permissions(Permission.SUBSCRIPTIONS_MANAGE))
+]
+PaymentsReadPrincipal = Annotated[Principal, Depends(require_permissions(Permission.PAYMENTS_READ))]
+PlansPrincipal = Annotated[Principal, Depends(require_permissions(Permission.PLANS_MANAGE))]
+FamiliesPrincipal = Annotated[Principal, Depends(require_permissions(Permission.FAMILIES_MANAGE))]
+VpnReadPrincipal = Annotated[Principal, Depends(require_permissions(Permission.VPN_READ))]
+NodeManagePrincipal = Annotated[
+    Principal, Depends(require_permissions(Permission.VPN_NODES_MANAGE))
+]
+SettingsReadPrincipal = Annotated[
+    Principal, Depends(require_permissions(Permission.SETTINGS_READ))
 ]
 UserStatusFilter = Literal["active", "blocked", "pending_deletion", "deleted"]
 SubscriptionStatusFilter = Literal[
@@ -46,14 +71,14 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/dashboard", response_model=AdminDashboardResponse)
     async def dashboard(
-        principal: AdminPrincipal, service: AdminServiceDependency
+        principal: DashboardPrincipal, service: AdminServiceDependency
     ) -> AdminDashboardResponse:
         del principal
         return await service.dashboard()
 
     @router.get("/users", response_model=AdminUserPage)
     async def users(
-        principal: AdminPrincipal,
+        principal: UsersReadPrincipal,
         service: AdminServiceDependency,
         search: Annotated[str | None, Query(max_length=200)] = None,
         user_status: Annotated[UserStatusFilter | None, Query(alias="status")] = None,
@@ -66,7 +91,7 @@ def create_admin_router() -> APIRouter:
     @router.get("/users/{user_id}", response_model=AdminUserDetail)
     async def user(
         user_id: UUID,
-        principal: AdminPrincipal,
+        principal: UsersReadPrincipal,
         service: AdminServiceDependency,
     ) -> AdminUserDetail:
         del principal
@@ -76,7 +101,7 @@ def create_admin_router() -> APIRouter:
     async def block_user(
         user_id: UUID,
         payload: BlockUserRequest,
-        principal: AdminPrincipal,
+        principal: UsersManagePrincipal,
         service: AdminServiceDependency,
     ) -> AdminUserDetail:
         return await service.block_user(
@@ -87,7 +112,7 @@ def create_admin_router() -> APIRouter:
     async def unblock_user(
         user_id: UUID,
         payload: BlockUserRequest,
-        principal: AdminPrincipal,
+        principal: UsersManagePrincipal,
         service: AdminServiceDependency,
     ) -> AdminUserDetail:
         return await service.unblock_user(
@@ -101,7 +126,7 @@ def create_admin_router() -> APIRouter:
     async def extend_subscription(
         user_id: UUID,
         payload: ExtendSubscriptionRequest,
-        principal: AdminPrincipal,
+        principal: SubscriptionsManagePrincipal,
         service: AdminServiceDependency,
     ) -> AdminSubscriptionSummary:
         return await service.extend_subscription(
@@ -118,7 +143,7 @@ def create_admin_router() -> APIRouter:
     async def change_plan(
         user_id: UUID,
         payload: ChangePlanRequest,
-        principal: AdminPrincipal,
+        principal: SubscriptionsManagePrincipal,
         service: AdminServiceDependency,
     ) -> AdminSubscriptionSummary:
         return await service.change_plan(
@@ -131,7 +156,7 @@ def create_admin_router() -> APIRouter:
     @router.get("/users/{user_id}/devices", response_model=AdminDevicePage)
     async def user_devices(
         user_id: UUID,
-        principal: AdminPrincipal,
+        principal: VpnReadPrincipal,
         service: AdminServiceDependency,
         limit: Annotated[int, Query(ge=1, le=200)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -141,7 +166,7 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/subscriptions", response_model=AdminSubscriptionPage)
     async def subscriptions(
-        principal: AdminPrincipal,
+        principal: SubscriptionsReadPrincipal,
         service: AdminServiceDependency,
         subscription_status: Annotated[
             SubscriptionStatusFilter | None, Query(alias="status")
@@ -154,7 +179,7 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/payments", response_model=AdminPaymentPage)
     async def payments(
-        principal: AdminPrincipal,
+        principal: PaymentsReadPrincipal,
         service: AdminServiceDependency,
         payment_status: Annotated[str | None, Query(alias="status", max_length=40)] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -165,7 +190,7 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/plans", response_model=list[AdminPlanResponse])
     async def plans(
-        principal: AdminPrincipal, service: AdminServiceDependency
+        principal: PlansPrincipal, service: AdminServiceDependency
     ) -> list[AdminPlanResponse]:
         del principal
         return await service.plans()
@@ -173,7 +198,7 @@ def create_admin_router() -> APIRouter:
     @router.post("/plans", response_model=AdminPlanResponse, status_code=201)
     async def create_plan(
         payload: CreateAdminPlanRequest,
-        principal: AdminPrincipal,
+        principal: PlansPrincipal,
         service: AdminServiceDependency,
     ) -> AdminPlanResponse:
         return await service.create_plan(payload=payload, actor_user_id=principal.user_id)
@@ -182,7 +207,7 @@ def create_admin_router() -> APIRouter:
     async def update_plan(
         plan_id: UUID,
         payload: UpdateAdminPlanRequest,
-        principal: AdminPrincipal,
+        principal: PlansPrincipal,
         service: AdminServiceDependency,
     ) -> AdminPlanResponse:
         return await service.update_plan(
@@ -193,7 +218,7 @@ def create_admin_router() -> APIRouter:
     async def create_plan_version(
         plan_id: UUID,
         payload: CreateAdminPlanVersionRequest,
-        principal: AdminPrincipal,
+        principal: PlansPrincipal,
         service: AdminServiceDependency,
     ) -> AdminPlanResponse:
         return await service.create_plan_version(
@@ -204,7 +229,7 @@ def create_admin_router() -> APIRouter:
     async def archive_plan(
         plan_id: UUID,
         payload: ArchiveAdminPlanRequest,
-        principal: AdminPrincipal,
+        principal: PlansPrincipal,
         service: AdminServiceDependency,
     ) -> AdminPlanResponse:
         return await service.archive_plan(
@@ -213,7 +238,7 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/family-groups", response_model=AdminFamilyGroupPage)
     async def family_groups(
-        principal: AdminPrincipal,
+        principal: FamiliesPrincipal,
         service: AdminServiceDependency,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -224,7 +249,7 @@ def create_admin_router() -> APIRouter:
     @router.get("/family-groups/{group_id}", response_model=AdminFamilyGroupResponse)
     async def family_group(
         group_id: UUID,
-        principal: AdminPrincipal,
+        principal: FamiliesPrincipal,
         service: AdminServiceDependency,
     ) -> AdminFamilyGroupResponse:
         del principal
@@ -238,7 +263,7 @@ def create_admin_router() -> APIRouter:
         group_id: UUID,
         member_user_id: UUID,
         payload: AdminFamilyActionRequest,
-        principal: AdminPrincipal,
+        principal: FamiliesPrincipal,
         service: AdminServiceDependency,
     ) -> AdminFamilyGroupResponse:
         return await service.remove_family_member(
@@ -256,7 +281,7 @@ def create_admin_router() -> APIRouter:
         group_id: UUID,
         invitation_id: UUID,
         payload: AdminFamilyActionRequest,
-        principal: AdminPrincipal,
+        principal: FamiliesPrincipal,
         service: AdminServiceDependency,
     ) -> AdminFamilyGroupResponse:
         return await service.revoke_family_invitation(
@@ -268,7 +293,7 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/vpn-devices", response_model=AdminDevicePage)
     async def vpn_devices(
-        principal: AdminPrincipal,
+        principal: VpnReadPrincipal,
         service: AdminServiceDependency,
         limit: Annotated[int, Query(ge=1, le=200)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -278,9 +303,65 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/settings", response_model=AdminSettingsResponse)
     async def settings(
-        principal: AdminPrincipal, service: AdminServiceDependency
+        principal: SettingsReadPrincipal, service: AdminServiceDependency
     ) -> AdminSettingsResponse:
         del principal
-        return service.settings()
+        return await service.settings()
+
+    @router.patch("/settings/features/{feature}", response_model=AdminFeatureResponse)
+    async def update_feature(
+        feature: FeatureKey,
+        payload: UpdateAdminFeatureRequest,
+        principal: SuperAdminPrincipal,
+        service: AdminServiceDependency,
+    ) -> AdminFeatureResponse:
+        return await service.update_feature(
+            feature=feature,
+            enabled=payload.enabled,
+            actor_user_id=principal.user_id,
+            reason=payload.reason,
+        )
+
+    @router.get("/remnawave/nodes", response_model=list[AdminRemnawaveNodeResponse])
+    async def remnawave_nodes(
+        principal: VpnReadPrincipal,
+        service: AdminServiceDependency,
+    ) -> list[AdminRemnawaveNodeResponse]:
+        del principal
+        return await service.remnawave_nodes()
+
+    @router.post(
+        "/remnawave/nodes/{node_uuid}/disable",
+        response_model=AdminRemnawaveNodeResponse,
+    )
+    async def disable_remnawave_node(
+        node_uuid: UUID,
+        payload: AdminNodeActionRequest,
+        principal: NodeManagePrincipal,
+        service: AdminServiceDependency,
+    ) -> AdminRemnawaveNodeResponse:
+        return await service.set_remnawave_node_state(
+            node_uuid=node_uuid,
+            enabled=False,
+            actor_user_id=principal.user_id,
+            reason=payload.reason,
+        )
+
+    @router.post(
+        "/remnawave/nodes/{node_uuid}/enable",
+        response_model=AdminRemnawaveNodeResponse,
+    )
+    async def enable_remnawave_node(
+        node_uuid: UUID,
+        payload: AdminNodeActionRequest,
+        principal: NodeManagePrincipal,
+        service: AdminServiceDependency,
+    ) -> AdminRemnawaveNodeResponse:
+        return await service.set_remnawave_node_state(
+            node_uuid=node_uuid,
+            enabled=True,
+            actor_user_id=principal.user_id,
+            reason=payload.reason,
+        )
 
     return router

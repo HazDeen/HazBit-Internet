@@ -81,5 +81,35 @@ class DeviceList(BaseModel):
     devices: list[DeviceState]
 
 
+class NodeState(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    uuid: UUID
+    name: str
+    address: str
+    country_code: str
+    is_connected: bool
+    is_disabled: bool
+    is_connecting: bool
+    last_status_change: datetime | None = None
+    last_status_message: str | None = None
+    users_online: int = 0
+    traffic_used_bytes: int | None = None
+    traffic_limit_bytes: int | None = None
+    xray_uptime: int = 0
+    cpu_count: int | None = None
+    memory_total_bytes: int | None = None
+    memory_used_bytes: int | None = None
+    load_average: list[float] = Field(default_factory=list)
+    rx_bytes_per_second: int | None = None
+    tx_bytes_per_second: int | None = None
+    xray_version: str | None = None
+    node_version: str | None = None
+
+
+class NodeList(BaseModel):
+    nodes: list[NodeState]
+
+
 class HealthResponse(BaseModel):
     status: str

@@ -5,7 +5,7 @@
 :root[data-theme="light"] { color-scheme: light; --tg-bg: #f3f7f5; --tg-secondary-bg: #e9f0ed; --tg-text: #10221b; --tg-hint: #697a73; --line: rgb(25 68 52 / 12%); --line-strong: rgb(25 68 52 / 20%); --surface: rgb(255 255 255 / 88%); --soft: rgb(35 108 80 / 7%); --shadow: 0 25px 70px rgb(29 58 47 / 14%); }
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--tg-bg); }
-body { min-width: 320px; min-height: 100%; margin: 0; background: radial-gradient(circle at 50% -10%, rgb(60 174 132 / 11%), transparent 34%), var(--tg-bg); color: var(--tg-text); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body { min-width: 320px; min-height: 100%; margin: 0; overflow-x: hidden; background: radial-gradient(circle at 50% -10%, rgb(60 174 132 / 11%), transparent 34%), var(--tg-bg); color: var(--tg-text); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { -webkit-user-select: none; user-select: none; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }

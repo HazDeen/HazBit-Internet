@@ -1,0 +1,72 @@
+{
+	auto_https off
+	admin off
+}
+
+(security_headers) {
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}
+
+(api_proxy) {
+	@backend path /api/* /health/*
+	reverse_proxy @backend platform:8000 {
+		health_uri /health/live
+		health_interval 20s
+		health_timeout 3s
+		health_headers {
+			Host 127.0.0.1
+		}
+	}
+}
+
+http://{$HAZBIT_DOMAIN}, http://app.{$HAZBIT_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	route {
+		import api_proxy
+		root * /srv/customer
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+http://admin.{$HAZBIT_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	route {
+		import api_proxy
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+http://mini.{$HAZBIT_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	route {
+		import api_proxy
+		root * /srv/miniapp
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+http://api.{$HAZBIT_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	reverse_proxy platform:8000 {
+		health_uri /health/live
+		health_interval 20s
+		health_timeout 3s
+		health_headers {
+			Host 127.0.0.1
+		}
+	}
+}

@@ -14,7 +14,30 @@ class Role(StrEnum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     SUPPORT = "support"
+    NETWORK = "network"
+    FINANCE = "finance"
+    CONTENT = "content"
     USER = "user"
+
+
+class Permission(StrEnum):
+    DASHBOARD_READ = "dashboard.read"
+    USERS_READ = "users.read"
+    USERS_MANAGE = "users.manage"
+    SUBSCRIPTIONS_READ = "subscriptions.read"
+    SUBSCRIPTIONS_MANAGE = "subscriptions.manage"
+    PAYMENTS_READ = "payments.read"
+    PAYMENTS_REVIEW = "payments.review"
+    TICKETS_READ = "tickets.read"
+    TICKETS_REPLY = "tickets.reply"
+    TICKETS_MANAGE = "tickets.manage"
+    PROMOTIONS_MANAGE = "promotions.manage"
+    PLANS_MANAGE = "plans.manage"
+    FAMILIES_MANAGE = "families.manage"
+    VPN_READ = "vpn.read"
+    VPN_NODES_MANAGE = "vpn.nodes.manage"
+    SETTINGS_READ = "settings.read"
+    STAFF_MANAGE = "staff.manage"
 
 
 class OtpPurpose(StrEnum):

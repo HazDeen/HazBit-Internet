@@ -13,15 +13,17 @@ async def run_telegram_notification_batch(
     *,
     limit: int | None = None,
 ) -> int:
-    if not settings.telegram_bots.operations_chat_ids or not runtime.operations.configured:
+    if not runtime.operations.configured and not runtime.customer.configured:
         return 0
     async with database.session() as session:
         processor = TelegramNotificationProcessor(
             session=session,
             settings=settings,
-            client=runtime.operations,
+            operations_client=runtime.operations,
+            customer_client=runtime.customer,
             callbacks=runtime.callbacks,
         )
+        await processor.enqueue_expiry_reminders()
         claims = await processor.claim(limit=limit)
         for claim in claims:
             await processor.deliver(claim)

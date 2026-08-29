@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.features import FeatureKey
+
 
 class DashboardTrendPoint(BaseModel):
     date: str
@@ -317,3 +319,56 @@ class AdminSettingsResponse(BaseModel):
     default_promo_plan: str
     support_create_limit_per_day: int
     support_message_limit_per_hour: int
+    features: list["AdminFeatureResponse"]  # noqa: UP037 - declared below for response grouping
+
+
+class AdminFeatureResponse(BaseModel):
+    key: FeatureKey
+    label: str
+    description: str
+    configured: bool
+    runtime_enabled: bool
+    enabled: bool
+
+
+class UpdateAdminFeatureRequest(BaseModel):
+    enabled: bool
+    reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        return value.strip()
+
+
+class AdminNodeActionRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_node_reason(cls, value: str) -> str:
+        return value.strip()
+
+
+class AdminRemnawaveNodeResponse(BaseModel):
+    uuid: UUID
+    name: str
+    address: str
+    country_code: str
+    is_connected: bool
+    is_disabled: bool
+    is_connecting: bool
+    last_status_change: datetime | None
+    last_status_message: str | None
+    users_online: int
+    traffic_used_bytes: int | None
+    traffic_limit_bytes: int | None
+    xray_uptime: int
+    cpu_count: int | None
+    memory_total_bytes: int | None
+    memory_used_bytes: int | None
+    load_average: list[float]
+    rx_bytes_per_second: int | None
+    tx_bytes_per_second: int | None
+    xray_version: str | None
+    node_version: str | None

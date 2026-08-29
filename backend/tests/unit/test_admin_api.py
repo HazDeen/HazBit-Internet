@@ -25,6 +25,10 @@ def test_admin_panel_routes_are_registered(test_settings: Settings) -> None:
         "/api/v1/admin/family-groups/{group_id}",
         "/api/v1/admin/vpn-devices",
         "/api/v1/admin/settings",
+        "/api/v1/admin/staff",
+        "/api/v1/admin/staff/invitations",
+        "/api/v1/admin/staff/invitations/accept",
+        "/api/v1/admin/staff/{user_id}",
     }.issubset(paths)
 
 

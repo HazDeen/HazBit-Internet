@@ -13,4 +13,11 @@
   --hazbit-brand-red: #ef7d80;
   --hazbit-font-body: "DM Sans", system-ui, sans-serif;
   --hazbit-font-display: Manrope, system-ui, sans-serif;
+  --hazbit-space-page: clamp(16px, 4vw, 56px);
+  --hazbit-radius-panel: 28px;
+  --hazbit-radius-control: 13px;
+  --hazbit-motion-fast: 160ms;
+  --hazbit-motion-page: 300ms;
+  --hazbit-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --hazbit-focus-ring: 0 0 0 4px rgb(110 168 254 / 14%);
 }

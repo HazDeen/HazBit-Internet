@@ -1,0 +1,22 @@
+.route-sphere { --sphere-size: min(35vw, 430px); position: relative; width: var(--sphere-size); aspect-ratio: 1; display: grid; place-items: center; isolation: isolate; perspective: 900px; }
+.route-sphere.is-compact { --sphere-size: min(28vw, 300px); }
+.route-sphere__glow { position: absolute; inset: 18%; border-radius: 50%; background: conic-gradient(from 180deg, rgb(110 168 254 / 36%), rgb(167 139 250 / 24%), rgb(240 120 200 / 25%), rgb(110 168 254 / 36%)); filter: blur(42px); opacity: .78; animation: route-breathe 5s ease-in-out infinite; }
+.route-sphere__shell { position: relative; width: 69%; aspect-ratio: 1; display: grid; place-items: center; transform: rotateX(64deg) rotateZ(-18deg); transform-style: preserve-3d; border: 1px solid rgb(183 205 255 / 24%); border-radius: 50%; background: radial-gradient(circle at 34% 28%, rgb(110 168 254 / 22%), rgb(23 25 52 / 34%) 35%, rgb(8 11 24 / 76%) 68%); box-shadow: inset -24px -24px 60px rgb(4 6 17 / 58%), inset 16px 16px 40px rgb(167 139 250 / 12%), 0 36px 80px rgb(0 0 0 / 32%); }
+.route-sphere__shell::before, .route-sphere__shell::after { content: ""; position: absolute; inset: 7%; border: 1px solid rgb(158 184 255 / 18%); border-radius: 50%; }
+.route-sphere__shell::after { inset: 24% 4%; border-color: rgb(240 120 200 / 18%); }
+.route-sphere__orbit { position: absolute; inset: -7%; border: 1px solid rgb(110 168 254 / 42%); border-radius: 50%; transform-style: preserve-3d; animation: route-spin 9s linear infinite; }
+.route-sphere__orbit b { position: absolute; top: 11%; left: 14%; width: 8px; height: 8px; border-radius: 50%; background: #9bc0ff; box-shadow: 0 0 18px #6ea8fe; }
+.route-sphere__orbit--two { inset: 8% -11%; transform: rotateY(64deg); border-color: rgb(167 139 250 / 44%); animation-duration: 12s; animation-direction: reverse; }
+.route-sphere__orbit--two b { top: auto; bottom: 5%; left: 45%; background: #c8b7ff; box-shadow: 0 0 18px #a78bfa; }
+.route-sphere__orbit--three { inset: 18% -3%; transform: rotateX(68deg); border-color: rgb(240 120 200 / 34%); animation-duration: 15s; }
+.route-sphere__orbit--three b { top: 50%; left: auto; right: -4px; background: #ff9bdd; box-shadow: 0 0 18px #f078c8; }
+.route-sphere__core { position: relative; z-index: 3; width: 29%; aspect-ratio: 1; display: grid; place-items: center; transform: rotateZ(18deg) rotateX(-64deg) translateZ(34px); border: 1px solid rgb(191 210 255 / 32%); border-radius: 31%; background: linear-gradient(145deg, #263b75, #231b4b); color: #dce7ff; box-shadow: 0 16px 40px rgb(17 18 53 / 55%), inset 0 1px rgb(255 255 255 / 15%); }
+.route-sphere__core svg { width: 43%; height: 43%; }
+.route-sphere__node { position: absolute; z-index: 4; width: 10px; height: 10px; border: 2px solid rgb(10 13 27 / 80%); border-radius: 50%; background: var(--hazbit-brand-primary); box-shadow: 0 0 20px var(--hazbit-brand-primary); }
+.route-sphere__node--north { top: 4%; left: 49%; }.route-sphere__node--east { right: 4%; top: 58%; background: var(--hazbit-brand-tertiary); box-shadow: 0 0 20px var(--hazbit-brand-tertiary); }.route-sphere__node--south { bottom: 6%; left: 28%; background: var(--hazbit-brand-mint); box-shadow: 0 0 20px var(--hazbit-brand-mint); }
+.route-sphere__shadow { position: absolute; bottom: 8%; width: 56%; height: 9%; border-radius: 50%; background: rgb(0 0 0 / 55%); filter: blur(18px); transform: rotate(-4deg); }
+.route-sphere.is-paused { filter: saturate(.45); }.route-sphere.is-paused .route-sphere__glow { opacity: .3; }.route-sphere.is-paused .route-sphere__orbit { animation-play-state: paused; }
+@keyframes route-spin { to { rotate: 1turn; } }
+@keyframes route-breathe { 50% { opacity: .5; transform: scale(.92); } }
+@media (max-width: 760px) { .route-sphere { --sphere-size: min(86vw, 360px); }.route-sphere.is-compact { --sphere-size: min(72vw, 280px); } }
+@media (prefers-reduced-motion: reduce) { .route-sphere__orbit, .route-sphere__glow { animation: none; } }

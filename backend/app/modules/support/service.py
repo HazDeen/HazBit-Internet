@@ -127,6 +127,7 @@ class SupportService:
                     "ticket_id": str(ticket.id),
                     "public_number": ticket.public_number,
                     "user_id": str(user_id),
+                    "subject": ticket.subject,
                     "category": ticket.category,
                     "priority": ticket.priority,
                 },
@@ -430,6 +431,10 @@ class SupportService:
                     key=f"support-message-created:{message.id}",
                     payload={
                         "ticket_id": str(ticket.id),
+                        "public_number": ticket.public_number,
+                        "subject": ticket.subject,
+                        "category": ticket.category,
+                        "priority": ticket.priority,
                         "message_id": str(message.id),
                         "user_id": str(ticket.user_id),
                         "sender_user_id": str(actor_user_id),

@@ -38,3 +38,13 @@ def create_portal_router() -> APIRouter:
         return await service.payments(principal.user_id, limit)
 
     return router
+
+
+def create_public_catalog_router() -> APIRouter:
+    router = APIRouter(prefix="/catalog", tags=["public-catalog"])
+
+    @router.get("/plans", response_model=list[PortalPlanResponse])
+    async def public_plans(service: PortalServiceDependency) -> list[PortalPlanResponse]:
+        return await service.catalog()
+
+    return router

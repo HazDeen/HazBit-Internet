@@ -6,8 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from app.core.errors import ApplicationError
-from app.modules.auth.dependencies import PrincipalDependency, require_roles
-from app.modules.auth.enums import Role
+from app.modules.auth.dependencies import PrincipalDependency, require_permissions
+from app.modules.auth.enums import Permission, Role
 from app.modules.auth.service import Principal
 from app.modules.support.dependencies import SupportServiceDependency
 from app.modules.support.schemas import (
@@ -24,8 +24,10 @@ from app.modules.support.service import SupportClientContext
 
 StaffPrincipal = Annotated[
     Principal,
-    Depends(require_roles(Role.SUPPORT, Role.ADMIN, Role.SUPER_ADMIN)),
+    Depends(require_permissions(Permission.TICKETS_READ)),
 ]
+ReplyPrincipal = Annotated[Principal, Depends(require_permissions(Permission.TICKETS_REPLY))]
+ManagePrincipal = Annotated[Principal, Depends(require_permissions(Permission.TICKETS_MANAGE))]
 TicketStatusFilter = Literal["open", "in_progress", "waiting_user", "closed"]
 
 
@@ -163,7 +165,7 @@ def create_support_router() -> APIRouter:
         ticket_id: UUID,
         payload: AdminReplyRequest,
         request: Request,
-        principal: StaffPrincipal,
+        principal: ReplyPrincipal,
         service: SupportServiceDependency,
         idempotency_key: Annotated[
             str, Header(alias="Idempotency-Key", min_length=8, max_length=128)
@@ -183,7 +185,7 @@ def create_support_router() -> APIRouter:
         ticket_id: UUID,
         payload: UpdateTicketRequest,
         request: Request,
-        principal: StaffPrincipal,
+        principal: ManagePrincipal,
         service: SupportServiceDependency,
     ) -> TicketResponse:
         return await service.update_ticket(

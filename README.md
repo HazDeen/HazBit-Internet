@@ -12,7 +12,9 @@ Foundation**, **STEP 4 — Authentication**, **STEP 5 — VPN Integration**,
 **STEP 9 — Support Ticket System**, **STEP 10 — Admin Panel**, **STEP 11 —
 Family Subscription Domain**, **STEP 12 — Customer Web/PWA**, **STEP 13 —
 Telegram Mini App**, **STEP 14 — Telegram Bots**, and the base production scope of
-**STEP 15 — Release Hardening** are complete.
+**STEP 15 — Release Hardening** are complete. **STEP 16 — Platega Payments and
+Hazbit Wallet** adds real SBP/card/crypto top-ups, ledger-backed balance, wallet
+purchases, automatic renewal and public bank-review pages.
 
 - [System architecture](docs/architecture/step-01-system-architecture.md)
 - [Architecture decisions](docs/architecture/decisions.md)
@@ -30,7 +32,9 @@ Telegram Mini App**, **STEP 14 — Telegram Bots**, and the base production scop
 - [Customer Web/PWA](docs/frontend/step-12-customer-web-pwa.md)
 - [Telegram Mini App](docs/frontend/step-13-telegram-mini-app.md)
 - [Telegram Bots](docs/backend/step-14-telegram-bots.md)
+- [Staff access and Telegram notifications](docs/backend/staff-access-and-notifications.md)
 - [VPS deployment and release hardening](docs/operations/step-15-release-hardening.md)
+- [Platega payments and Hazbit wallet](docs/backend/step-16-platega-wallet.md)
 - [Product delivery roadmap](docs/architecture/product-delivery-roadmap.md)
 - [Admin frontend](frontend/README.md)
 - [Customer Web/PWA](customer-frontend/README.md)
@@ -43,6 +47,8 @@ JWT sessions, RBAC, Redis rate limiting, anti-abuse signals, durable Remnawave
 provisioning, HWID device management, Gemini receipt extraction, deterministic
 payment approval, immutable ledger posting, referral rewards, promo discounts,
 free-day grants, durable VPN provisioning, and audit trail are implemented. The
+Platega integration adds authenticated, idempotent wallet top-ups, chargeback
+reversals, balance-funded tariff purchases and scheduled wallet auto-renewal. The
 support module adds private customer conversations, a prioritized staff queue,
 ticket assignment, and audited status transitions. The React admin console adds
 an operational dashboard, user/subscription/payment controls, VPN device views,

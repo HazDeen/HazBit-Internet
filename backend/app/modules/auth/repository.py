@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import distinct, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.enums import Role
+from app.modules.auth.enums import Permission, Role
 from app.modules.auth.models import (
     AuditLog,
     AuthSession,
@@ -15,8 +15,10 @@ from app.modules.auth.models import (
     TelegramAccount,
     User,
     UserEmail,
+    UserPermission,
     UserRole,
 )
+from app.modules.auth.permissions import permissions_for_roles
 
 
 class AuthRepository:
@@ -153,6 +155,17 @@ class AuthRepository:
             )
         )
         return {Role(value) for value in result.all()}
+
+    async def get_permissions(
+        self, user_id: UUID, *, roles: set[Role] | frozenset[Role] | None = None
+    ) -> set[Permission]:
+        active_roles = set(roles) if roles is not None else await self.get_roles(user_id)
+        permissions = permissions_for_roles(active_roles)
+        result = await self.session.scalars(
+            select(UserPermission.permission).where(UserPermission.user_id == user_id)
+        )
+        permissions.update(Permission(value) for value in result.all())
+        return permissions
 
     async def get_primary_email(self, user_id: UUID) -> str | None:
         result = await self.session.scalar(

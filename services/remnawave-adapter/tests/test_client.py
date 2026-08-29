@@ -133,3 +133,51 @@ async def test_contract_mismatch_does_not_leak_response_body() -> None:
 
     assert exc_info.value.code == "panel_contract_mismatch"
     assert "very-secret" not in exc_info.value.detail
+
+
+async def test_nodes_map_operational_metrics_and_actions() -> None:
+    paths: list[str] = []
+    node = {
+        "uuid": "0192bc20-1111-7000-9000-000000000101",
+        "name": "Frankfurt Core",
+        "address": "de-1.hazbit.net",
+        "countryCode": "DE",
+        "isConnected": True,
+        "isDisabled": False,
+        "isConnecting": False,
+        "lastStatusChange": "2026-08-29T00:00:00Z",
+        "lastStatusMessage": None,
+        "usersOnline": 184,
+        "trafficUsedBytes": 1000,
+        "trafficLimitBytes": 5000,
+        "xrayUptime": 3600,
+        "system": {
+            "info": {"cpus": 8, "memoryTotal": 16_000},
+            "stats": {
+                "memoryUsed": 6_000,
+                "loadAvg": [0.6, 0.5, 0.4],
+                "interface": {"rxBytesPerSec": 1200, "txBytesPerSec": 2400},
+            },
+        },
+        "versions": {"xray": "25.8.3", "node": "2.1.5"},
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        response = [node] if request.url.path == "/api/nodes" else node
+        return httpx.Response(200, json={"response": response})
+
+    client = RemnawaveClient(_settings(), transport=httpx.MockTransport(handler))
+    try:
+        result = await client.list_nodes()
+        disabled = await client.disable_node(result.nodes[0].uuid)
+    finally:
+        await client.close()
+
+    assert paths == [
+        "/api/nodes",
+        "/api/nodes/0192bc20-1111-7000-9000-000000000101/actions/disable",
+    ]
+    assert result.nodes[0].users_online == 184
+    assert result.nodes[0].memory_used_bytes == 6000
+    assert disabled.name == "Frankfurt Core"

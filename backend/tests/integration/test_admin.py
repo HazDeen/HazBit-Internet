@@ -347,7 +347,7 @@ async def test_admin_dashboard_user_controls_and_catalog(
             devices = await service.devices(user_id=user_id, limit=100, offset=0)
             families = await service.family_groups(limit=100, offset=0)
             family = await service.family_group(family_group_id)
-            safe_settings = service.settings()
+            safe_settings = await service.settings()
         assert any(item.id == subscription_id for item in subscriptions.items)
         assert any(item.id == pending_payment_id for item in payments.items)
         assert [item.id for item in devices.items] == [device_id]

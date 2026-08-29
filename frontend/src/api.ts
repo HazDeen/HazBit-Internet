@@ -6,11 +6,13 @@ import {
   mockPlans,
   mockPromos,
   mockSettings,
+  mockRemnawaveNodes,
   mockSubscriptions,
   mockTickets,
   mockTicketDetails,
   mockUsers,
 } from "./mock";
+import type { AuthUser, StaffDirectory, StaffMember } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 export const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
@@ -23,17 +25,64 @@ const demoDb = {
   promos: structuredClone(mockPromos),
   plans: structuredClone(mockPlans),
   families: structuredClone(mockFamilyGroups),
+  settings: structuredClone(mockSettings),
+  nodes: structuredClone(mockRemnawaveNodes),
 };
 
 let accessToken = sessionStorage.getItem("hazbit_admin_access_token");
+let currentUser = JSON.parse(sessionStorage.getItem("hazbit_admin_user") ?? "null") as AuthUser | null;
+
+const demoUser: AuthUser = {
+  id: "0192ca0f-5af7-7af5-98d6-72af6eb6fa01",
+  display_name: "Hazbit Owner",
+  email: "owner@hazdeen.xyz",
+  telegram_user_id: 816402915,
+  roles: ["super_admin"],
+  permissions: [
+    "dashboard.read", "users.read", "users.manage", "subscriptions.read",
+    "subscriptions.manage", "payments.read", "payments.review", "tickets.read",
+    "tickets.reply", "tickets.manage", "promotions.manage", "plans.manage",
+    "families.manage", "vpn.read", "vpn.nodes.manage", "settings.read", "staff.manage",
+  ],
+};
+
+const demoStaff: StaffDirectory = {
+  members: [
+    { user_id: demoUser.id, email: demoUser.email!, public_name: demoUser.display_name, status: "active", roles: ["super_admin"], permissions: [], telegram_linked: true, created_at: "2026-05-18T10:00:00Z" },
+    { user_id: "0192ca0f-5af7-7af5-98d6-72af6eb6fa02", email: "support@hazdeen.xyz", public_name: "Hazbit Support", status: "active", roles: ["support"], permissions: [], telegram_linked: true, created_at: "2026-08-12T11:30:00Z" },
+  ],
+  invitations: [],
+  role_presets: {
+    super_admin: demoUser.permissions,
+    admin: demoUser.permissions.filter((item) => item !== "staff.manage"),
+    support: ["dashboard.read", "users.read", "tickets.read", "tickets.reply", "tickets.manage"],
+    network: ["dashboard.read", "users.read", "subscriptions.read", "vpn.read", "vpn.nodes.manage"],
+    finance: ["dashboard.read", "users.read", "subscriptions.read", "payments.read", "payments.review"],
+    content: ["dashboard.read", "promotions.manage", "plans.manage"],
+  },
+  available_permissions: demoUser.permissions,
+};
 
 export function hasSession(): boolean {
-  return demoMode || Boolean(accessToken);
+  return demoMode || Boolean(accessToken && currentUser);
 }
 
 export function clearSession(): void {
   accessToken = null;
   sessionStorage.removeItem("hazbit_admin_access_token");
+  currentUser = null;
+  sessionStorage.removeItem("hazbit_admin_user");
+}
+
+export function getSessionUser(): AuthUser {
+  return demoMode ? demoUser : currentUser ?? {
+    id: "",
+    display_name: null,
+    email: null,
+    telegram_user_id: null,
+    roles: [],
+    permissions: [],
+  };
 }
 
 function csrfToken(): string | null {
@@ -83,6 +132,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     } | null;
     throw new Error(problem?.detail ?? `Request failed (${response.status})`);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -91,6 +141,44 @@ function demoRequest<T>(path: string, init: RequestInit): T {
   const method = init.method ?? "GET";
   const body = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
   const now = new Date().toISOString();
+
+  if (route === "/admin/staff/invitations" && method === "POST") {
+    const invitation = {
+      id: crypto.randomUUID(),
+      email: String(body.email),
+      roles: body.roles as string[],
+      permissions: body.permissions as string[],
+      expires_at: new Date(Date.now() + 72 * 3600_000).toISOString(),
+      created_at: now,
+    };
+    demoStaff.invitations.unshift(invitation);
+    return structuredClone(invitation) as T;
+  }
+  const staffInviteMutation = route.match(/^\/admin\/staff\/invitations\/([^/]+)$/);
+  if (staffInviteMutation && method === "DELETE") {
+    const index = demoStaff.invitations.findIndex((item) => item.id === staffInviteMutation[1]);
+    if (index >= 0) demoStaff.invitations.splice(index, 1);
+    return undefined as T;
+  }
+
+  const featureMutation = route.match(/^\/admin\/settings\/features\/([^/]+)$/);
+  if (featureMutation && method === "PATCH") {
+    const feature = demoDb.settings.features.find((item) => item.key === featureMutation[1]);
+    if (!feature) throw new Error("Feature not found");
+    feature.runtime_enabled = Boolean(body.enabled);
+    feature.enabled = feature.configured && feature.runtime_enabled;
+    return structuredClone(feature) as T;
+  }
+
+  const nodeMutation = route.match(/^\/admin\/remnawave\/nodes\/([^/]+)\/(enable|disable)$/);
+  if (nodeMutation && method === "POST") {
+    const node = demoDb.nodes.find((item) => item.uuid === nodeMutation[1]);
+    if (!node) throw new Error("Node not found");
+    node.is_disabled = nodeMutation[2] === "disable";
+    node.is_connected = !node.is_disabled;
+    node.last_status_change = now;
+    return structuredClone(node) as T;
+  }
 
   const paymentReview = route.match(/^\/admin\/payments\/([^/]+)\/review$/);
   if (paymentReview && method === "POST") {
@@ -289,7 +377,9 @@ function demoRequest<T>(path: string, init: RequestInit): T {
     "/admin/plans": demoDb.plans,
     "/admin/family-groups": demoDb.families,
     "/admin/vpn-devices": mockDevices,
-    "/admin/settings": mockSettings,
+    "/admin/settings": demoDb.settings,
+    "/admin/remnawave/nodes": demoDb.nodes,
+    "/admin/staff": demoStaff,
   };
   const value = routes[route];
   if (value === undefined) throw new Error(`No demo route for ${method} ${route}`);
@@ -336,17 +426,30 @@ export async function startEmailLogin(email: string): Promise<void> {
   });
 }
 
-export async function verifyEmailLogin(email: string, code: string): Promise<void> {
+export async function verifyEmailLogin(
+  email: string, code: string, options: { allowUser?: boolean } = {},
+): Promise<void> {
   const response = await api<{
     access_token: string;
-    user: { roles: string[] };
+    user: AuthUser;
   }>("/auth/email/verify", {
     method: "POST",
     body: JSON.stringify({ email, code }),
   });
-  if (!response.user.roles.some((role) => role === "admin" || role === "super_admin")) {
+  if (!options.allowUser && !response.user.permissions.some((value) => value === "dashboard.read")) {
     throw new Error("This account does not have administrator access.");
   }
   accessToken = response.access_token;
   sessionStorage.setItem("hazbit_admin_access_token", response.access_token);
+  currentUser = response.user;
+  sessionStorage.setItem("hazbit_admin_user", JSON.stringify(response.user));
+}
+
+export async function acceptStaffInvitation(token: string): Promise<void> {
+  await api<StaffMember>("/admin/staff/invitations/accept", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+  currentUser = await api<AuthUser>("/auth/me");
+  sessionStorage.setItem("hazbit_admin_user", JSON.stringify(currentUser));
 }

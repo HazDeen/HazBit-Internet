@@ -1,4 +1,4 @@
-export type Section = "overview" | "subscription" | "devices" | "family" | "rewards" | "support" | "profile";
+export type Section = "overview" | "subscription" | "billing" | "devices" | "family" | "rewards" | "support" | "profile";
 export type Locale = "ru" | "en";
 export type Theme = "dark" | "light";
 
@@ -21,3 +21,7 @@ export interface TicketMessage { id: string; ticket_id: string; sender_user_id: 
 export interface TicketDetail { ticket: Ticket; messages: TicketMessage[] }
 export interface AuthUser { id: string; display_name: string | null; email: string | null; telegram_user_id: number | null; roles: string[] }
 export interface AuthResponse { access_token: string; token_type: string; expires_in: number; user: AuthUser }
+export interface WalletTopUp { id: string; provider: string; provider_transaction_id: string | null; payment_method: number; status: string; amount_minor: number; currency: string; checkout_url: string | null; expires_at: string | null; confirmed_at: string | null; cancelled_at: string | null; created_at: string }
+export interface WalletTransaction { id: string; transaction_type: string; amount_minor: number; currency: string; description: string | null; created_at: string }
+export interface Wallet { balance_minor: number; currency: string; auto_renew_enabled: boolean; auto_renew_plan_price_id: string | null; next_renewal_at: string | null; last_renewal_failure: string | null; top_ups: WalletTopUp[]; transactions: WalletTransaction[] }
+export interface WalletPurchase { transaction_id: string; subscription_id: string; balance_minor: number; currency: string; current_period_ends_at: string; auto_renew_enabled: boolean }

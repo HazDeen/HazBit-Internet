@@ -162,7 +162,13 @@ class Transaction(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    reverses_transaction_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("app.transactions.id")
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

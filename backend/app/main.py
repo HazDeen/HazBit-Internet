@@ -11,11 +11,13 @@ from app.api.health import create_health_router
 from app.api.router import create_api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
+from app.core.feature_middleware import FeatureGateMiddleware
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.database.session import DatabaseManager
 from app.integrations.redis import RedisManager
 from app.modules.auth.runtime import create_auth_runtime
+from app.modules.billing.runtime import create_billing_runtime
 from app.modules.bots.runtime import create_telegram_bots_runtime
 from app.modules.payments.runtime import create_payment_runtime
 from app.modules.vpn.runtime import create_vpn_runtime
@@ -33,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database = database
         app.state.redis = redis
         app.state.auth_runtime = create_auth_runtime(resolved_settings, redis)
+        app.state.billing_runtime = create_billing_runtime(resolved_settings)
         app.state.telegram_bots_runtime = create_telegram_bots_runtime(resolved_settings)
         app.state.vpn_runtime = create_vpn_runtime(resolved_settings)
         app.state.payment_runtime = create_payment_runtime(resolved_settings)
@@ -47,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await app.state.payment_runtime.extractor.close()
             await app.state.payment_runtime.storage.close()
+            await app.state.billing_runtime.platega.close()
             await app.state.telegram_bots_runtime.close()
             await app.state.vpn_runtime.adapter.close()
             await redis.dispose()
@@ -77,6 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=resolved_settings.allowed_hosts)
+    app.add_middleware(
+        FeatureGateMiddleware,
+        features=resolved_settings.features,
+        redis_settings=resolved_settings.redis,
+    )
     app.add_middleware(
         RequestContextMiddleware,
         request_id_header=resolved_settings.request_id_header,

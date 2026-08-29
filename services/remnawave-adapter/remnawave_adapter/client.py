@@ -4,12 +4,20 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from remnawave_adapter.config import Settings
-from remnawave_adapter.schemas import DeviceList, DeviceState, ProvisionUserRequest, UserState
+from remnawave_adapter.schemas import (
+    DeviceList,
+    DeviceState,
+    NodeList,
+    NodeState,
+    ProvisionUserRequest,
+    UserState,
+)
 
 
 @dataclass(slots=True)
@@ -127,6 +135,25 @@ class RemnawaveClient:
             )
         )
 
+    async def list_nodes(self) -> NodeList:
+        data = await self._request("GET", "/api/nodes")
+        try:
+            return NodeList(nodes=[_node_state(item) for item in data["response"]])
+        except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            raise RemnawaveClientError(
+                "panel_contract_mismatch",
+                "Remnawave node response does not match API v3.3.2.",
+                502,
+            ) from exc
+
+    async def disable_node(self, node_uuid: UUID) -> NodeState:
+        data = await self._request("POST", f"/api/nodes/{node_uuid}/actions/disable")
+        return _node_state(data["response"])
+
+    async def enable_node(self, node_uuid: UUID) -> NodeState:
+        data = await self._request("POST", f"/api/nodes/{node_uuid}/actions/enable")
+        return _node_state(data["response"])
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         attempts = self._settings.max_get_attempts if method == "GET" else 1
         for attempt in range(1, attempts + 1):
@@ -211,6 +238,44 @@ def _device_list(data: dict[str, Any]) -> DeviceList:
         raise RemnawaveClientError(
             "panel_contract_mismatch",
             "Remnawave device response does not match API v3.3.2.",
+            502,
+        ) from exc
+
+
+def _node_state(body: dict[str, Any]) -> NodeState:
+    try:
+        system = body.get("system") or {}
+        info = system.get("info") or {}
+        stats = system.get("stats") or {}
+        interface = stats.get("interface") or {}
+        versions = body.get("versions") or {}
+        return NodeState(
+            uuid=body["uuid"],
+            name=body["name"],
+            address=body["address"],
+            country_code=body.get("countryCode") or "XX",
+            is_connected=bool(body.get("isConnected")),
+            is_disabled=bool(body.get("isDisabled")),
+            is_connecting=bool(body.get("isConnecting")),
+            last_status_change=body.get("lastStatusChange"),
+            last_status_message=body.get("lastStatusMessage"),
+            users_online=int(body.get("usersOnline") or 0),
+            traffic_used_bytes=body.get("trafficUsedBytes"),
+            traffic_limit_bytes=body.get("trafficLimitBytes"),
+            xray_uptime=int(body.get("xrayUptime") or 0),
+            cpu_count=info.get("cpus"),
+            memory_total_bytes=info.get("memoryTotal"),
+            memory_used_bytes=stats.get("memoryUsed"),
+            load_average=stats.get("loadAvg") or [],
+            rx_bytes_per_second=interface.get("rxBytesPerSec"),
+            tx_bytes_per_second=interface.get("txBytesPerSec"),
+            xray_version=versions.get("xray"),
+            node_version=versions.get("node"),
+        )
+    except (KeyError, TypeError, ValueError, ValidationError) as exc:
+        raise RemnawaveClientError(
+            "panel_contract_mismatch",
+            "Remnawave node response does not match API v3.3.2.",
             502,
         ) from exc
 

@@ -1,5 +1,5 @@
-import { mockDevices, mockFamily, mockOverview, mockPayments, mockPlans, mockReferral, mockTicketDetails, mockTickets } from "./mock";
-import type { AuthResponse, Device, FamilyGroup, Payment, PromoPreview, TicketDetail, TicketMessage } from "./types";
+import { mockDevices, mockFamily, mockOverview, mockPayments, mockPlans, mockReferral, mockTicketDetails, mockTickets, mockWallet } from "./mock";
+import type { AuthResponse, Device, FamilyGroup, Payment, PromoPreview, TicketDetail, TicketMessage, Wallet } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 export const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
@@ -8,12 +8,13 @@ const demoDb = {
   overview: structuredClone(mockOverview), plans: structuredClone(mockPlans), devices: structuredClone(mockDevices),
   payments: structuredClone(mockPayments), family: structuredClone(mockFamily), referral: structuredClone(mockReferral),
   tickets: structuredClone(mockTickets), ticketDetails: structuredClone(mockTicketDetails),
+  wallet: structuredClone(mockWallet),
 };
 
 let accessToken = sessionStorage.getItem("hazbit_customer_access_token");
 const fingerprintKey = "hazbit_customer_fingerprint";
 
-export function hasSession() { return demoMode || Boolean(accessToken); }
+export function hasSession() { return Boolean(accessToken); }
 export function clearSession() { accessToken = null; sessionStorage.removeItem("hazbit_customer_access_token"); }
 export function idempotencyKey(scope: string) { return `${scope}-${crypto.randomUUID()}`; }
 export function deviceFingerprint() {
@@ -68,10 +69,44 @@ function demoRequest<T>(path: string, init: RequestInit): T {
 
   if (route === "/portal/overview") return structuredClone(demoDb.overview) as T;
   if (route === "/portal/plans") return structuredClone(demoDb.plans) as T;
+  if (route === "/catalog/plans") return structuredClone(demoDb.plans) as T;
   if (route === "/portal/payments") return structuredClone(demoDb.payments) as T;
+  if (route === "/billing/wallet" && method === "GET") return structuredClone(demoDb.wallet) as T;
+  if (route === "/billing/top-ups" && method === "POST") {
+    const amount = Number(body.amount_minor);
+    const topUp = { id: crypto.randomUUID(), provider: "platega", provider_transaction_id: crypto.randomUUID(), payment_method: Number(body.payment_method), status: "confirmed", amount_minor: amount, currency: String(body.currency ?? "RUB"), checkout_url: null, expires_at: new Date(Date.now() + 900_000).toISOString(), confirmed_at: now, cancelled_at: null, created_at: now };
+    demoDb.wallet.balance_minor += amount;
+    demoDb.wallet.top_ups.unshift(topUp);
+    demoDb.wallet.transactions.unshift({ id: crypto.randomUUID(), transaction_type: "payment_credit", amount_minor: amount, currency: topUp.currency, description: "Пополнение баланса через Platega", created_at: now });
+    return structuredClone(topUp) as T;
+  }
+  if (route === "/billing/purchases" && method === "POST") {
+    const price = demoDb.plans.flatMap((plan) => plan.prices).find((item) => item.id === body.plan_price_id);
+    if (!price) throw new Error("Тариф не найден");
+    if (demoDb.wallet.balance_minor < price.amount_minor) throw new Error("Недостаточно средств на балансе");
+    demoDb.wallet.balance_minor -= price.amount_minor;
+    demoDb.wallet.auto_renew_enabled = Boolean(body.auto_renew);
+    demoDb.wallet.auto_renew_plan_price_id = price.id;
+    demoDb.wallet.transactions.unshift({ id: crypto.randomUUID(), transaction_type: "subscription_debit", amount_minor: -price.amount_minor, currency: price.currency, description: "Оплата тарифа Hazbit", created_at: now });
+    return { transaction_id: crypto.randomUUID(), subscription_id: demoDb.overview.subscription?.id ?? crypto.randomUUID(), balance_minor: demoDb.wallet.balance_minor, currency: price.currency, current_period_ends_at: demoDb.overview.subscription?.current_period_ends_at ?? new Date(Date.now() + 2_592_000_000).toISOString(), auto_renew_enabled: Boolean(body.auto_renew) } as T;
+  }
+  if (route === "/billing/auto-renew" && method === "PATCH") {
+    demoDb.wallet.auto_renew_enabled = Boolean(body.enabled);
+    return structuredClone(demoDb.wallet) as T;
+  }
+  if (route === "/auth/email/start" && method === "POST") return { message: "Demo code sent" } as T;
+  if (route === "/auth/email/verify" && method === "POST") {
+    if (String(body.code) !== "000000") throw new Error("Для демо используйте код 000000");
+    return {
+      access_token: "customer-demo-token",
+      token_type: "bearer",
+      expires_in: 900,
+      user: { id: demoDb.overview.user.id, display_name: demoDb.overview.user.public_name, email: String(body.email), telegram_user_id: demoDb.overview.user.telegram_user_id, roles: ["USER"] },
+    } as T;
+  }
   if (route === "/auth/logout" && method === "POST") return undefined as T;
   if (route === "/devices" && method === "GET") return structuredClone(demoDb.devices) as T;
-  if (route === "/vpn/config") return { subscription_url: "https://sub.hazbit.app/c/demo-secure-token" } as T;
+  if (route === "/vpn/config") return { subscription_url: "https://sub.hazdeen.xyz/c/demo-secure-token" } as T;
   if (route === "/family/group" && method === "GET") return structuredClone(demoDb.family) as T;
   if (route === "/family/groups" && method === "POST") {
     demoDb.family = {

@@ -1,0 +1,7 @@
+# Add this block to the Caddyfile that already serves the VPS.
+# The Hazbit container is bound only to 127.0.0.1, so it is not reachable
+# directly from the Internet.
+
+hazdeen.xyz, app.hazdeen.xyz, admin.hazdeen.xyz, mini.hazdeen.xyz, api.hazdeen.xyz {
+	reverse_proxy 127.0.0.1:18080
+}

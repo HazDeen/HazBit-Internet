@@ -5,8 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Header, Query, Request, Response, UploadFile, status
 
-from app.modules.auth.dependencies import PrincipalDependency, require_roles
-from app.modules.auth.enums import Role
+from app.modules.auth.dependencies import PrincipalDependency, require_permissions
+from app.modules.auth.enums import Permission
 from app.modules.auth.service import Principal
 from app.modules.payments.dependencies import PaymentServiceDependency
 from app.modules.payments.enums import ReviewDecision
@@ -21,7 +21,7 @@ from app.modules.payments.service import PaymentClientContext
 
 AdminPrincipal = Annotated[
     Principal,
-    Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+    Depends(require_permissions(Permission.PAYMENTS_REVIEW)),
 ]
 
 

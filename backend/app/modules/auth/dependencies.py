@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.api.dependencies import SessionDependency
 from app.core.config import Settings
 from app.core.errors import ApplicationError
-from app.modules.auth.enums import Role
+from app.modules.auth.enums import Permission, Role
 from app.modules.auth.runtime import AuthRuntime
 from app.modules.auth.service import AuthService, Principal
 
@@ -51,6 +51,7 @@ async def get_current_principal(
 
 PrincipalDependency = Annotated[Principal, Depends(get_current_principal)]
 RoleDependency = Callable[..., Coroutine[Any, Any, Principal]]
+PermissionDependency = Callable[..., Coroutine[Any, Any, Principal]]
 
 
 def require_roles(*required: Role) -> RoleDependency:
@@ -66,3 +67,18 @@ def require_roles(*required: Role) -> RoleDependency:
         return principal
 
     return role_checker
+
+
+def require_permissions(*required: Permission) -> PermissionDependency:
+    required_permissions = frozenset(required)
+
+    async def permission_checker(principal: PrincipalDependency) -> Principal:
+        if not required_permissions.issubset(principal.permissions):
+            raise ApplicationError(
+                code="insufficient_permissions",
+                detail="The authenticated user does not have the required permission.",
+                status_code=403,
+            )
+        return principal
+
+    return permission_checker

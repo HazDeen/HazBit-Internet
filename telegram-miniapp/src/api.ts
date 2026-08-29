@@ -1,5 +1,5 @@
-import { mockDevices, mockFamily, mockOverview, mockPayments, mockPlans, mockReferral, mockTicketDetails, mockTickets } from "../../customer-frontend/src/mock";
-import type { AuthResponse, Device, FamilyGroup, Overview, Payment, Plan, PromoPreview, ReferralStatistics, Ticket, TicketDetail, TicketMessage, VpnConfig } from "../../shared/customer/types";
+import { mockDevices, mockFamily, mockOverview, mockPayments, mockPlans, mockReferral, mockTicketDetails, mockTickets, mockWallet } from "../../customer-frontend/src/mock";
+import type { AuthResponse, Device, FamilyGroup, Overview, Payment, Plan, PromoPreview, ReferralStatistics, Ticket, TicketDetail, TicketMessage, VpnConfig, Wallet, WalletPurchase, WalletTopUp } from "../../shared/customer/types";
 import { tg } from "./telegram";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
@@ -10,6 +10,7 @@ const demo = {
   overview: structuredClone(mockOverview), plans: structuredClone(mockPlans), payments: structuredClone(mockPayments),
   devices: structuredClone(mockDevices), family: structuredClone(mockFamily), referral: structuredClone(mockReferral),
   tickets: structuredClone(mockTickets), details: structuredClone(mockTicketDetails),
+  wallet: structuredClone(mockWallet),
 };
 
 function fingerprint() {
@@ -57,11 +58,22 @@ function demoRequest<T>(path: string, init: RequestInit): T {
   if (route === "/portal/overview") return structuredClone(demo.overview) as T;
   if (route === "/portal/plans") return structuredClone(demo.plans) as T;
   if (route === "/portal/payments") return structuredClone(demo.payments) as T;
+  if (route === "/billing/wallet" && method === "GET") return structuredClone(demo.wallet) as T;
+  if (route === "/billing/top-ups" && method === "POST") {
+    const amount = Number(body.amount_minor); const topUp: WalletTopUp = { id: crypto.randomUUID(), provider: "platega", provider_transaction_id: crypto.randomUUID(), payment_method: Number(body.payment_method), status: "confirmed", amount_minor: amount, currency: String(body.currency ?? "RUB"), checkout_url: null, expires_at: new Date(Date.now() + 900_000).toISOString(), confirmed_at: now, cancelled_at: null, created_at: now };
+    demo.wallet.balance_minor += amount; demo.wallet.top_ups.unshift(topUp); demo.wallet.transactions.unshift({ id: crypto.randomUUID(), transaction_type: "payment_credit", amount_minor: amount, currency: topUp.currency, description: "Пополнение через Platega", created_at: now }); return structuredClone(topUp) as T;
+  }
+  if (route === "/billing/purchases" && method === "POST") {
+    const price = demo.plans.flatMap((plan) => plan.prices).find((item) => item.id === body.plan_price_id); if (!price) throw new Error("Тариф не найден"); if (demo.wallet.balance_minor < price.amount_minor) throw new Error("Недостаточно средств на балансе");
+    demo.wallet.balance_minor -= price.amount_minor; demo.wallet.auto_renew_enabled = Boolean(body.auto_renew); demo.wallet.auto_renew_plan_price_id = price.id; demo.wallet.transactions.unshift({ id: crypto.randomUUID(), transaction_type: "subscription_debit", amount_minor: -price.amount_minor, currency: price.currency, description: "Оплата тарифа Hazbit", created_at: now });
+    return { transaction_id: crypto.randomUUID(), subscription_id: demo.overview.subscription?.id ?? crypto.randomUUID(), balance_minor: demo.wallet.balance_minor, currency: price.currency, current_period_ends_at: demo.overview.subscription?.current_period_ends_at ?? new Date(Date.now() + 2_592_000_000).toISOString(), auto_renew_enabled: Boolean(body.auto_renew) } as WalletPurchase as T;
+  }
+  if (route === "/billing/auto-renew" && method === "PATCH") { demo.wallet.auto_renew_enabled = Boolean(body.enabled); return structuredClone(demo.wallet) as T; }
   if (route === "/devices" && method === "GET") return structuredClone(demo.devices) as T;
   if (route === "/family/group") return structuredClone(demo.family) as T;
   if (route === "/referrals/statistics") return structuredClone(demo.referral) as T;
   if (route === "/tickets" && method === "GET") return structuredClone(demo.tickets) as T;
-  if (route === "/vpn/config") return { subscription_url: "https://sub.hazbit.app/c/telegram-demo" } as VpnConfig as T;
+  if (route === "/vpn/config") return { subscription_url: "https://sub.hazdeen.xyz/c/telegram-demo" } as VpnConfig as T;
   if (route === "/promo-codes/preview" && method === "POST") {
     const code = String(body.code ?? "").toUpperCase(); if (code !== "WELCOME20") throw new Error("Промокод не найден");
     return { code, promo_type: "discount_percent", value: 20, starts_at: now, expires_at: null, plan_version_id: null, original_amount_minor: 79900, discount_amount_minor: 15980, final_amount_minor: 63920, currency: "RUB" } as PromoPreview as T;
@@ -87,4 +99,4 @@ function demoRequest<T>(path: string, init: RequestInit): T {
   throw new Error(`No Telegram demo route for ${method} ${route}`);
 }
 
-export type { Device, FamilyGroup, Overview, Payment, Plan, PromoPreview, ReferralStatistics, Ticket, TicketDetail };
+export type { Device, FamilyGroup, Overview, Payment, Plan, PromoPreview, ReferralStatistics, Ticket, TicketDetail, Wallet, WalletPurchase, WalletTopUp };

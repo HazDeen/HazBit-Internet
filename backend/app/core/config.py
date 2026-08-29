@@ -119,6 +119,12 @@ class EmailSettings(BaseModel):
     smtp_password: SecretStr | None = None
     smtp_start_tls: bool = True
     smtp_use_tls: bool = False
+    invitation_ttl_hours: int = Field(default=72, ge=1, le=336)
+    invite_limit_per_day: int = Field(default=20, ge=1, le=200)
+    invitation_secret: SecretStr = SecretStr(
+        "local-only-staff-invitation-secret-change-me-0123456789"
+    )
+    invitation_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:5173/#staff-invite")
 
     @field_validator("smtp_host", "smtp_username", mode="before")
     @classmethod
@@ -236,6 +242,52 @@ class PaymentSettings(BaseModel):
     analysis_poll_interval_seconds: float = Field(default=1.0, ge=0.1, le=60)
 
 
+def _default_platega_payment_methods() -> list[Literal[2, 10, 13]]:
+    return [2, 10, 13]
+
+
+class PlategaSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    base_url: AnyHttpUrl = AnyHttpUrl("https://app.platega.io")
+    merchant_id: SecretStr = SecretStr("")
+    secret: SecretStr = SecretStr("")
+    success_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:5174/#billing/success")
+    failed_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:5174/#billing/failed")
+    timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    allowed_payment_methods: list[Literal[2, 10, 13]] = Field(
+        default_factory=_default_platega_payment_methods
+    )
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> Self:
+        merchant_id = self.merchant_id.get_secret_value()
+        secret = self.secret.get_secret_value()
+        if self.enabled and (not merchant_id or not secret):
+            raise ValueError("Platega merchant ID and secret are required when enabled")
+        if len(self.allowed_payment_methods) != len(set(self.allowed_payment_methods)):
+            raise ValueError("Platega payment methods must be unique")
+        return self
+
+
+class BillingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platega: PlategaSettings = Field(default_factory=PlategaSettings)
+    currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
+    minimum_top_up_minor: int = Field(default=10_000, ge=100)
+    maximum_top_up_minor: int = Field(default=1_000_000_00, ge=100)
+    renewal_poll_interval_seconds: float = Field(default=30.0, ge=1.0, le=3600)
+    renewal_retry_seconds: int = Field(default=3600, ge=60, le=86400)
+
+    @model_validator(mode="after")
+    def validate_top_up_limits(self) -> Self:
+        if self.maximum_top_up_minor < self.minimum_top_up_minor:
+            raise ValueError("maximum wallet top-up must be at least the minimum")
+        return self
+
+
 class ReferralSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -285,6 +337,25 @@ class FamilySettings(BaseModel):
     invite_limit_per_day: int = Field(default=20, ge=1, le=200)
 
 
+class FeatureSettings(BaseModel):
+    """Deployment-level feature availability.
+
+    Runtime controls may pause an enabled feature, but can never enable a feature
+    that was disabled by the deployment configuration.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    vpn_provisioning: bool = True
+    billing: bool = True
+    payment_ai: bool = True
+    referrals: bool = True
+    promotions: bool = True
+    families: bool = True
+    support: bool = True
+    telegram_bots: bool = True
+
+
 class LaunchPlanPriceSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -303,10 +374,7 @@ class LaunchSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_prices(self) -> Self:
-        keys = [
-            (price.plan_slug, price.term_months, price.currency)
-            for price in self.plan_prices
-        ]
+        keys = [(price.plan_slug, price.term_months, price.currency) for price in self.plan_prices]
         if len(keys) != len(set(keys)):
             raise ValueError("launch plan prices must be unique by plan, term, and currency")
         return self
@@ -350,10 +418,12 @@ class Settings(BaseSettings):
     telegram_bots: TelegramBotsSettings = Field(default_factory=TelegramBotsSettings)
     vpn: VpnSettings = Field(default_factory=VpnSettings)
     payments: PaymentSettings = Field(default_factory=PaymentSettings)
+    billing: BillingSettings = Field(default_factory=BillingSettings)
     referrals: ReferralSettings = Field(default_factory=ReferralSettings)
     promotions: PromoSettings = Field(default_factory=PromoSettings)
     support: SupportSettings = Field(default_factory=SupportSettings)
     families: FamilySettings = Field(default_factory=FamilySettings)
+    features: FeatureSettings = Field(default_factory=FeatureSettings)
     launch: LaunchSettings = Field(default_factory=LaunchSettings)
 
     @field_validator("api_v1_prefix")
@@ -377,9 +447,14 @@ class Settings(BaseSettings):
             raise ValueError("wildcard CORS origins are forbidden in production")
         if self.environment == "production":
             self._validate_production_auth()
-            self._validate_production_bots()
-            self._validate_production_payments()
-            self._validate_production_referrals()
+            if self.features.telegram_bots:
+                self._validate_production_bots()
+            if self.features.payment_ai:
+                self._validate_production_payments()
+            if self.features.billing:
+                self._validate_production_billing()
+            if self.features.referrals:
+                self._validate_production_referrals()
             self._validate_production_launch()
             self._validate_production_hosts()
         return self
@@ -390,14 +465,17 @@ class Settings(BaseSettings):
             "OTP": self.auth.otp.secret.get_secret_value(),
             "refresh": self.auth.refresh_token_secret.get_secret_value(),
             "fingerprint": self.auth.fingerprint_secret.get_secret_value(),
+            "staff invitation": self.auth.email.invitation_secret.get_secret_value(),
         }
         for label, secret in secrets.items():
             if len(secret) < 32 or secret.startswith("local-only"):
                 raise ValueError(f"{label} secret must be replaced for production")
-        if not self.auth.telegram.bot_token.get_secret_value():
+        if self.features.telegram_bots and not self.auth.telegram.bot_token.get_secret_value():
             raise ValueError("Telegram bot token is required in production")
         if self.auth.email.backend != "smtp" or not self.auth.email.smtp_host:
             raise ValueError("SMTP email backend is required in production")
+        if self.auth.email.invitation_url.scheme != "https":
+            raise ValueError("staff invitation URL must use HTTPS in production")
         if not self.auth.cookies.secure:
             raise ValueError("secure authentication cookies are required in production")
         vpn_secrets = {
@@ -423,6 +501,15 @@ class Settings(BaseSettings):
         storage = self.payments.storage
         if storage.backend != "s3":
             raise ValueError("S3 payment evidence storage is required in production")
+
+    def _validate_production_billing(self) -> None:
+        provider = self.billing.platega
+        if not provider.enabled:
+            raise ValueError("Platega billing must be enabled in production")
+        if provider.base_url.scheme != "https":
+            raise ValueError("Platega base URL must use HTTPS in production")
+        if provider.success_url.scheme != "https" or provider.failed_url.scheme != "https":
+            raise ValueError("Platega return URLs must use HTTPS in production")
 
     def _validate_production_bots(self) -> None:
         bots = self.telegram_bots

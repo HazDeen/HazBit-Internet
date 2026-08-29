@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
@@ -10,6 +11,8 @@ from remnawave_adapter.schemas import (
     DeviceList,
     DeviceState,
     ExtendUserRequest,
+    NodeList,
+    NodeState,
     ProvisionUserRequest,
     UpdateUserRequest,
     UserState,
@@ -87,5 +90,17 @@ def create_router() -> APIRouter:
     @router.delete("/users/{user_id}/devices/{hwid}", response_model=DeviceList)
     async def remove_device(user_id: int, hwid: str, client: ClientDependency) -> DeviceList:
         return await client.remove_device(user_id, hwid)
+
+    @router.get("/nodes", response_model=NodeList)
+    async def list_nodes(client: ClientDependency) -> NodeList:
+        return await client.list_nodes()
+
+    @router.post("/nodes/{node_uuid}/disable", response_model=NodeState)
+    async def disable_node(node_uuid: UUID, client: ClientDependency) -> NodeState:
+        return await client.disable_node(node_uuid)
+
+    @router.post("/nodes/{node_uuid}/enable", response_model=NodeState)
+    async def enable_node(node_uuid: UUID, client: ClientDependency) -> NodeState:
+        return await client.enable_node(node_uuid)
 
     return router

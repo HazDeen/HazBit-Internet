@@ -1,4 +1,4 @@
-import type { Device, FamilyGroup, Overview, Payment, Plan, ReferralStatistics, Ticket, TicketDetail } from "./types";
+import type { Device, FamilyGroup, Overview, Payment, Plan, ReferralStatistics, Ticket, TicketDetail, Wallet } from "./types";
 
 const day = 86_400_000;
 const now = Date.now();
@@ -64,6 +64,22 @@ export const mockPayments: Payment[] = [
   { id: "0192ed90-1111-7000-9000-000000000001", plan_price_id: mockPlans[2].prices[0].id, status: "activated", amount_minor: 79900, currency: "RUB", expires_at: iso(-17), uploaded_at: iso(-18), approved_at: iso(-18), rejection_reason: null, created_at: iso(-18) },
   { id: "0192ed90-1111-7000-9000-000000000002", plan_price_id: mockPlans[1].prices[0].id, status: "approved", amount_minor: 49900, currency: "RUB", expires_at: iso(-48), uploaded_at: iso(-49), approved_at: iso(-49), rejection_reason: null, created_at: iso(-49) },
 ];
+
+export const mockWallet: Wallet = {
+  balance_minor: 154900,
+  currency: "RUB",
+  auto_renew_enabled: true,
+  auto_renew_plan_price_id: mockPlans[2].prices[0].id,
+  next_renewal_at: iso(42),
+  last_renewal_failure: null,
+  top_ups: [
+    { id: "0192ee90-1111-7000-9000-000000000001", provider: "platega", provider_transaction_id: "0192ee91-1111-7000-9000-000000000001", payment_method: 2, status: "confirmed", amount_minor: 200000, currency: "RUB", checkout_url: null, expires_at: iso(-17), confirmed_at: iso(-18), cancelled_at: null, created_at: iso(-18) },
+  ],
+  transactions: [
+    { id: "0192ef90-1111-7000-9000-000000000001", transaction_type: "payment_credit", amount_minor: 200000, currency: "RUB", description: "Пополнение баланса через Platega", created_at: iso(-18) },
+    { id: "0192ef90-1111-7000-9000-000000000002", transaction_type: "subscription_debit", amount_minor: -45100, currency: "RUB", description: "Family, 1 месяц", created_at: iso(-18) },
+  ],
+};
 
 export const mockFamily: FamilyGroup = {
   id: "0192fb10-1111-7000-9000-000000000001", owner_user_id: mockOverview.user.id, subscription_id: mockOverview.subscription!.id,

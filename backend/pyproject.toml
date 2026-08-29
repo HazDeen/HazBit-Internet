@@ -69,6 +69,7 @@ ignore = ["S101"]
 "alembic/versions/*.py" = ["E501"]
 "app/modules/bots/notifications.py" = ["RUF001"]
 "app/modules/bots/service.py" = ["RUF001"]
+"app/modules/auth/email.py" = ["RUF001"]
 "tests/**/*.py" = ["S105", "S106"]
 
 [tool.mypy]

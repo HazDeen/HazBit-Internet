@@ -40,5 +40,11 @@ module.exports = {
       script: "/opt/venv/bin/python",
       args: "-m app.workers.run_telegram_notifications",
     },
+    {
+      ...common,
+      name: "billing-renewals",
+      script: "/opt/venv/bin/python",
+      args: "-m app.workers.run_billing_renewals",
+    },
   ],
 };

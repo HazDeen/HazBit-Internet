@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.config import RemnawaveAdapterSettings
 
@@ -38,6 +38,36 @@ class AdapterDeviceState(BaseModel):
 class AdapterDeviceList(BaseModel):
     total: int
     devices: list[AdapterDeviceState]
+
+
+class AdapterNodeState(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    uuid: UUID
+    name: str
+    address: str
+    country_code: str
+    is_connected: bool
+    is_disabled: bool
+    is_connecting: bool
+    last_status_change: datetime | None = None
+    last_status_message: str | None = None
+    users_online: int = 0
+    traffic_used_bytes: int | None = None
+    traffic_limit_bytes: int | None = None
+    xray_uptime: int = 0
+    cpu_count: int | None = None
+    memory_total_bytes: int | None = None
+    memory_used_bytes: int | None = None
+    load_average: list[float] = Field(default_factory=list)
+    rx_bytes_per_second: int | None = None
+    tx_bytes_per_second: int | None = None
+    xray_version: str | None = None
+    node_version: str | None = None
+
+
+class AdapterNodeList(BaseModel):
+    nodes: list[AdapterNodeState]
 
 
 @dataclass(slots=True)
@@ -150,6 +180,26 @@ class RemnawaveAdapterClient:
         data = await self._request("DELETE", f"/internal/v1/users/{user_id}/devices/{hwid}")
         try:
             return AdapterDeviceList.model_validate(data)
+        except ValidationError as exc:
+            raise self._contract_error() from exc
+
+    async def list_nodes(self) -> AdapterNodeList:
+        data = await self._request("GET", "/internal/v1/nodes")
+        try:
+            return AdapterNodeList.model_validate(data)
+        except ValidationError as exc:
+            raise self._contract_error() from exc
+
+    async def disable_node(self, node_uuid: UUID) -> AdapterNodeState:
+        return await self._node("POST", f"/internal/v1/nodes/{node_uuid}/disable")
+
+    async def enable_node(self, node_uuid: UUID) -> AdapterNodeState:
+        return await self._node("POST", f"/internal/v1/nodes/{node_uuid}/enable")
+
+    async def _node(self, method: str, path: str) -> AdapterNodeState:
+        data = await self._request(method, path)
+        try:
+            return AdapterNodeState.model_validate(data)
         except ValidationError as exc:
             raise self._contract_error() from exc
 

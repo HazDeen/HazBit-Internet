@@ -78,6 +78,37 @@ class UserRole(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.users.id", ondelete="CASCADE"), primary_key=True
+    )
+    permission: Mapped[str] = mapped_column(String(120), primary_key=True)
+    granted_by: Mapped[UUID | None] = mapped_column(ForeignKey("app.users.id", ondelete="SET NULL"))
+    granted_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
+class StaffInvitation(Base):
+    __tablename__ = "staff_invitations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    token_hash: Mapped[bytes] = mapped_column(nullable=False, unique=True)
+    roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    invited_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.users.id", ondelete="RESTRICT"), nullable=False
+    )
+    accepted_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("app.users.id", ondelete="SET NULL")
+    )
+    expires_at: Mapped[datetime] = datetime_column()
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
 

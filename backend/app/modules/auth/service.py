@@ -18,7 +18,7 @@ from app.modules.auth.crypto import (
     SignalHasher,
 )
 from app.modules.auth.email import EmailDeliveryError, EmailSender
-from app.modules.auth.enums import OtpPurpose, Role, UserStatus
+from app.modules.auth.enums import OtpPurpose, Permission, Role, UserStatus
 from app.modules.auth.models import AuthSession, OtpChallenge, User
 from app.modules.auth.rate_limit import RateLimit, RateLimiter
 from app.modules.auth.repository import AuthRepository
@@ -60,6 +60,7 @@ class Principal:
     user_id: UUID
     session_id: UUID
     roles: frozenset[Role]
+    permissions: frozenset[Permission] = frozenset()
 
 
 class AuthService:
@@ -413,7 +414,13 @@ class AuthService:
         user = await self._repository.get_user(claims.user_id)
         self._ensure_active(user)
         roles = await self._repository.get_roles(user.id)
-        return Principal(user_id=user.id, session_id=session.id, roles=frozenset(roles))
+        permissions = await self._repository.get_permissions(user.id, roles=roles)
+        return Principal(
+            user_id=user.id,
+            session_id=session.id,
+            roles=frozenset(roles),
+            permissions=frozenset(permissions),
+        )
 
     async def current_user(self, principal: Principal) -> AuthenticatedUser:
         user = await self._repository.get_user(principal.user_id)
@@ -450,6 +457,7 @@ class AuthService:
             email=await self._repository.get_primary_email(user.id),
             telegram_user_id=await self._repository.get_telegram_user_id(user.id),
             roles=list(roles),
+            permissions=list(await self._repository.get_permissions(user.id, roles=roles)),
         )
 
     def _new_session(

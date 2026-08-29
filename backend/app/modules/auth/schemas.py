@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.modules.auth.enums import Role
+from app.modules.auth.enums import Permission, Role
 
 
 class EmailStartRequest(BaseModel):
@@ -39,10 +39,16 @@ class AuthenticatedUser(BaseModel):
     email: EmailStr | None
     telegram_user_id: int | None
     roles: list[Role]
+    permissions: list[Permission]
 
     @field_validator("roles")
     @classmethod
     def sort_roles(cls, value: list[Role]) -> list[Role]:
+        return sorted(value, key=str)
+
+    @field_validator("permissions")
+    @classmethod
+    def sort_permissions(cls, value: list[Permission]) -> list[Permission]:
         return sorted(value, key=str)
 
 

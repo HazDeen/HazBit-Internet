@@ -5,9 +5,14 @@ from typing import Any
 import pytest
 from app.core.config import Settings
 from app.core.errors import ApplicationError
+from app.core.ids import uuid7
 from app.main import create_app
 from app.modules.bots.callbacks import CallbackCodec
 from app.modules.bots.dependencies import get_telegram_bot_service, get_telegram_update_gate
+from app.modules.bots.notifications import (
+    TelegramNotificationClaim,
+    TelegramNotificationProcessor,
+)
 from app.modules.bots.schemas import TelegramUpdate
 from fastapi.testclient import TestClient
 
@@ -96,6 +101,34 @@ def test_update_parses_telegram_aliases_and_successful_payment() -> None:
     assert update.message is not None
     assert update.message.successful_payment is not None
     assert update.message.successful_payment.total_amount == 49900
+
+
+def test_customer_ticket_reply_notification_uses_mini_app(test_settings: Settings) -> None:
+    processor = TelegramNotificationProcessor(
+        session=None,  # type: ignore[arg-type]
+        settings=test_settings,
+        operations_client=None,  # type: ignore[arg-type]
+        customer_client=None,  # type: ignore[arg-type]
+        callbacks=CallbackCodec("callback-secret", default_ttl_seconds=900),
+    )
+
+    text, markup = processor._render(
+        TelegramNotificationClaim(
+            event_id=uuid7(),
+            event_type="support.ticket.admin_replied",
+            payload={
+                "ticket_id": "0192ca0f-5af7-7af5-98d6-72af6eb6fa01",
+                "public_number": 1048,
+                "subject": "VLESS profile disconnects",
+                "user_id": "0192ca0f-5af7-7af5-98d6-72af6eb6fa02",
+            },
+            attempt=1,
+        )
+    )
+
+    assert "Поддержка ответила" in text
+    assert "VLESS" in text
+    assert markup["inline_keyboard"][0][0]["web_app"]["url"].endswith(":5175")
 
 
 def test_customer_webhook_requires_secret_and_deduplicates(

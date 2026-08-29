@@ -6,7 +6,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import TelegramAccount, User, UserRole
+from app.modules.auth.enums import Permission, Role
+from app.modules.auth.models import TelegramAccount, User, UserPermission, UserRole
+from app.modules.auth.permissions import permissions_for_roles
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +17,7 @@ class BotIdentity:
     locale: str
     status: str
     roles: frozenset[str]
+    permissions: frozenset[Permission]
 
 
 class BotRepository:
@@ -39,4 +42,18 @@ class BotRepository:
                 )
             )
         )
-        return BotIdentity(user_id=row.id, locale=row.locale, status=row.status, roles=roles)
+        typed_roles = {Role(value) for value in roles}
+        permissions = permissions_for_roles(typed_roles)
+        permissions.update(
+            Permission(value)
+            for value in await self._session.scalars(
+                select(UserPermission.permission).where(UserPermission.user_id == row.id)
+            )
+        )
+        return BotIdentity(
+            user_id=row.id,
+            locale=row.locale,
+            status=row.status,
+            roles=roles,
+            permissions=frozenset(permissions),
+        )

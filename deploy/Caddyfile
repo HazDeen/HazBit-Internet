@@ -52,6 +52,17 @@ app.{$HAZBIT_DOMAIN} {
 	encode zstd gzip
 	route {
 		import api_proxy
+		root * /srv/customer
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+mini.{$HAZBIT_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	route {
+		import api_proxy
 		root * /srv/miniapp
 		try_files {path} /index.html
 		file_server

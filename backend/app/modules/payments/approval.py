@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import ApplicationError
 from app.modules.auth.models import AuditLog
 from app.modules.payments.enums import PaymentStatus
+from app.modules.payments.ledger import ledger_account
 from app.modules.payments.models import (
-    LedgerAccount,
     OutboxEvent,
     Payment,
     Transaction,
@@ -42,14 +42,14 @@ async def approve_payment(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"ledger:{payment.user_id}:{payment.currency}"},
     )
-    wallet = await _ledger_account(
+    wallet = await ledger_account(
         session,
         key=f"user:{payment.user_id}",
         currency=payment.currency,
         account_type="user_wallet",
         owner_user_id=payment.user_id,
     )
-    clearing = await _ledger_account(
+    clearing = await ledger_account(
         session,
         key="cash_clearing",
         currency=payment.currency,
@@ -100,7 +100,7 @@ async def approve_payment(
         redemption, promo = promo_row
         discount = redemption.discount_amount_minor or 0
         if discount > 0:
-            promo_expense = await _ledger_account(
+            promo_expense = await ledger_account(
                 session,
                 key="promo_expense",
                 currency=payment.currency,
@@ -184,31 +184,3 @@ async def approve_payment(
             after_state={"status": PaymentStatus.APPROVED.value},
         )
     )
-
-
-async def _ledger_account(
-    session: AsyncSession,
-    *,
-    key: str,
-    currency: str,
-    account_type: str,
-    owner_user_id: UUID | None,
-) -> LedgerAccount:
-    account = await session.scalar(
-        select(LedgerAccount).where(
-            LedgerAccount.account_key == key,
-            LedgerAccount.currency == currency,
-        )
-    )
-    if account is not None:
-        return account
-    account = LedgerAccount(
-        account_key=key,
-        owner_user_id=owner_user_id,
-        account_type=account_type,
-        currency=currency,
-        status="active",
-    )
-    session.add(account)
-    await session.flush()
-    return account

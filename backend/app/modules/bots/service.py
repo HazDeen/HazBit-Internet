@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import ApplicationError
-from app.modules.auth.enums import Role, UserStatus
+from app.modules.auth.enums import Permission, Role, UserStatus
 from app.modules.auth.rate_limit import RateLimit, RateLimiter
 from app.modules.bots.callbacks import CallbackCodec
 from app.modules.bots.repository import BotIdentity, BotRepository
@@ -18,12 +18,20 @@ from app.modules.bots.schemas import TelegramCallbackQuery, TelegramMessage, Tel
 from app.modules.bots.telegram_api import TelegramBotClient
 from app.modules.payments.approval import approve_payment
 from app.modules.payments.enums import PaymentStatus, ReviewDecision
+from app.modules.payments.ledger import wallet_balance
 from app.modules.payments.models import Payment
 from app.modules.payments.service import PaymentService
 from app.modules.portal.service import PortalService
 
-OPERATIONS_ROLES = {Role.SUPER_ADMIN.value, Role.ADMIN.value, Role.SUPPORT.value}
-PAYMENT_REVIEW_ROLES = {Role.SUPER_ADMIN.value, Role.ADMIN.value}
+OPERATIONS_ROLES = {
+    Role.SUPER_ADMIN.value,
+    Role.ADMIN.value,
+    Role.SUPPORT.value,
+    Role.NETWORK.value,
+    Role.FINANCE.value,
+    Role.CONTENT.value,
+}
+PAYMENT_REVIEW_ROLES = {Role.SUPER_ADMIN.value, Role.ADMIN.value, Role.FINANCE.value}
 
 
 def _mini_app_button(text: str, url: str) -> dict[str, Any]:
@@ -80,7 +88,7 @@ class TelegramBotService:
             command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower()
             if command in {"/start", "/help"}:
                 await self._customer_start(message)
-            elif command == "/status":
+            elif command in {"/status", "/profile", "/subscription", "/balance"}:
                 await self._customer_status(message.chat.id, actor_id)
             elif command == "/vpn":
                 await self._send_customer_route(message.chat.id, "devices")
@@ -91,7 +99,7 @@ class TelegramBotService:
             else:
                 await self._customer.send_message(
                     message.chat.id,
-                    "Не понял команду. Используйте /status, /vpn, /pay или /support.",
+                    "Не понял команду. Используйте /status, /balance, /vpn, /pay или /support.",
                     reply_markup=self._customer_menu(),
                 )
         except ApplicationError as exc:
@@ -136,7 +144,7 @@ class TelegramBotService:
                 message.chat.id,
                 (
                     "<b>Hazbit Operations</b>\n\n"
-                    "Здесь приходят платежи на ручную проверку и срочные тикеты. "
+                    "Здесь приходят новые тикеты, ответы клиентов и платежи на ручную проверку. "
                     "Действия подписаны, имеют TTL и повторно не исполняются."
                 ),
                 reply_markup={
@@ -204,9 +212,13 @@ class TelegramBotService:
                 f"{escape(subscription.plan_name)} · {escape(subscription.status)} · до {end}"
             )
         vpn = overview.vpn.observed_status if overview.vpn else "не создан"
+        balance = await wallet_balance(
+            self._session, identity.user_id, self._settings.billing.currency
+        )
         text = (
             "<b>Статус Hazbit VPN</b>\n\n"
             f"Подписка: <b>{subscription_text}</b>\n"
+            f"Баланс: <b>{balance / 100:,.2f} {escape(self._settings.billing.currency)}</b>\n"
             f"VPN: <b>{escape(vpn or 'синхронизация')}</b>\n"
             f"Устройства: <b>{overview.active_device_count}</b>\n"
             f"Открытые тикеты: <b>{overview.open_ticket_count}</b>"
@@ -230,7 +242,7 @@ class TelegramBotService:
     async def _send_customer_route(self, chat_id: int, route: str) -> None:
         labels = {
             "devices": ("VPN и устройства", "Открыть устройства"),
-            "plans": ("Оплата и тарифы", "Выбрать тариф"),
+            "plans": ("Баланс, оплата и тарифы", "Открыть оплату"),
             "support": ("Поддержка Hazbit", "Открыть поддержку"),
         }
         title, button = labels[route]
@@ -269,10 +281,10 @@ class TelegramBotService:
             verified = self._callbacks.decode(callback.data)
             if verified.action not in {"pa", "pr"}:
                 raise ApplicationError("telegram_callback_unknown", "Unknown action.", 400)
-            if not identity.roles.intersection(PAYMENT_REVIEW_ROLES):
+            if Permission.PAYMENTS_REVIEW not in identity.permissions:
                 raise ApplicationError(
                     "telegram_operations_forbidden",
-                    "Only ADMIN or SUPER_ADMIN can review payments.",
+                    "Payment review permission is required.",
                     403,
                 )
             payment_hex, version_raw = verified.payload.split(":", 1)
@@ -381,7 +393,7 @@ class TelegramBotService:
 
     async def _require_operations_identity(self, telegram_user_id: int) -> BotIdentity:
         identity = await self._require_customer_identity(telegram_user_id)
-        if not identity.roles.intersection(OPERATIONS_ROLES):
+        if not identity.roles.intersection(OPERATIONS_ROLES) or not identity.permissions:
             raise ApplicationError(
                 "telegram_operations_forbidden", "Operations access is not allowed.", 403
             )
@@ -396,7 +408,7 @@ class TelegramBotService:
                     _mini_app_button("VPN", self._mini_url("devices")),
                 ],
                 [
-                    _mini_app_button("Тарифы", self._mini_url("plans")),
+                    _mini_app_button("Баланс и тарифы", self._mini_url("plans")),
                     _mini_app_button("Поддержка", self._mini_url("support")),
                 ],
             ]

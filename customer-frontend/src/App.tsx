@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
-  ArrowUpRight, BadgeCheck, Bell, CalendarDays, Check, ChevronRight, CircleHelp, Copy,
+  BadgeCheck, Bell, CalendarDays, Check, ChevronRight, CircleHelp, Copy,
   CreditCard, Crown, Download, Gift, Globe2, Headphones, Home, Languages, Link2, LoaderCircle,
   LockKeyhole, LogOut, Mail, Menu, MessageCircle, MonitorSmartphone, Moon, MoreHorizontal,
   Pencil, Plus, QrCode, Router, ScanLine, Send, Shield, ShieldCheck, Smartphone, Sparkles,
-  Sun, TicketCheck, TicketPlus, Trash2, Upload, UserPlus, UserRound, UsersRound, Wifi, WifiOff,
+  Sun, TicketCheck, TicketPlus, Trash2, UserPlus, UserRound, UsersRound, WalletCards, Wifi, WifiOff,
   X, Zap, type LucideIcon,
 } from "lucide-react";
-import { api, demoMode, hasSession, idempotencyKey, logout, startEmailLogin, uploadPaymentEvidence, verifyEmailLogin } from "./api";
+import { api, demoMode, hasSession, idempotencyKey, logout } from "./api";
 import { useI18n } from "./i18n";
+import { AuthDialog } from "./features/auth/AuthDialog";
+import { LandingPage } from "./features/landing/LandingPage";
+import { OverviewExperience } from "./features/overview/OverviewExperience";
+import { BillingPage } from "./features/billing/BillingPage";
+import { PublicLegalPage, type LegalRoute } from "./features/legal/PublicLegalPage";
+import { ToastViewport } from "./components/feedback/ToastViewport";
+import { useToastQueue } from "./components/feedback/useToastQueue";
 import type {
   Device, FamilyGroup, Locale, Overview, Payment, Plan, PromoPreview, ReferralStatistics,
   Section, Theme, Ticket, TicketDetail, VpnConfig,
+  Wallet, WalletPurchase,
 } from "./types";
 
 interface LoadState<T> { data: T | null; loading: boolean; error: string | null }
@@ -30,6 +39,7 @@ function useResource<T>(path: string): LoadState<T> & { reload: () => void; setD
 const navigation: Array<{ id: Section; icon: LucideIcon; en: string; ru: string }> = [
   { id: "overview", icon: Home, en: "Overview", ru: "Главная" },
   { id: "subscription", icon: Crown, en: "Subscription", ru: "Подписка" },
+  { id: "billing", icon: WalletCards, en: "Balance", ru: "Баланс" },
   { id: "devices", icon: MonitorSmartphone, en: "Devices", ru: "Устройства" },
   { id: "family", icon: UsersRound, en: "Family", ru: "Семья" },
   { id: "rewards", icon: Gift, en: "Rewards", ru: "Бонусы" },
@@ -37,36 +47,44 @@ const navigation: Array<{ id: Section; icon: LucideIcon; en: string; ru: string 
 ];
 
 const validSections = new Set<Section>([...navigation.map((item) => item.id), "profile"]);
-const sectionFromHash = (): Section => { const value = window.location.hash.slice(1) as Section; return validSections.has(value) ? value : "overview"; };
+const sectionFromHash = (): Section => { const raw = window.location.hash.slice(1); if (raw.startsWith("billing/")) return "billing"; const value = raw as Section; return validSections.has(value) ? value : "overview"; };
+const legalRouteFromHash = (): LegalRoute | null => { const value = window.location.hash.slice(1); return value === "privacy" || value === "terms" || value === "contacts" ? value : null; };
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
   const [authenticated, setAuthenticated] = useState(hasSession());
+  const [experience, setExperience] = useState<"site" | "portal">(() => hasSession() && window.location.hash.startsWith("#billing/") ? "portal" : "site");
   const [section, setSection] = useState<Section>(sectionFromHash());
+  const [legalRoute, setLegalRoute] = useState<LegalRoute | null>(legalRouteFromHash());
   const [theme, setTheme] = useState<Theme>(() => localStorage.getItem("hazbit-customer-theme") === "light" ? "light" : "dark");
+  const [authOpen, setAuthOpen] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const { messages: toastMessages, push: pushToast, dismiss: dismissToast } = useToastQueue();
+  const notify = useCallback((message: string) => { pushToast({ title: message, tone: "success" }); }, [pushToast]);
   const overview = useResource<Overview>("/portal/overview");
 
-  useEffect(() => { const change = () => setSection(sectionFromHash()); window.addEventListener("hashchange", change); return () => window.removeEventListener("hashchange", change); }, []);
+  useEffect(() => { const change = () => { setSection(sectionFromHash()); setLegalRoute(legalRouteFromHash()); }; window.addEventListener("hashchange", change); return () => window.removeEventListener("hashchange", change); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("hazbit-customer-theme", theme); }, [theme]);
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2800); return () => window.clearTimeout(timer); }, [toast]);
   const navigate = (value: Section) => { window.location.hash = value; setSection(value); setMenu(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const openPortal = () => { setExperience("portal"); navigate("overview"); };
+  const openSite = () => { setExperience("site"); setMenu(false); window.history.replaceState(null, "", window.location.pathname); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
-  if (!authenticated) return <Login onDone={() => { setAuthenticated(true); overview.reload(); }} />;
+  if (experience === "site" || !authenticated) return <>{legalRoute ? <PublicLegalPage route={legalRoute} theme={theme} onThemeChange={setTheme} authenticated={authenticated} onAccountAction={authenticated ? openPortal : () => setAuthOpen(true)} /> : <LandingPage theme={theme} onThemeChange={setTheme} authenticated={authenticated} onConnect={() => setAuthOpen(true)} onPortal={openPortal} />}<AuthDialog open={authOpen} onClose={() => setAuthOpen(false)} notify={pushToast} onAuthenticated={() => { setAuthOpen(false); setAuthenticated(true); setExperience("portal"); navigate("overview"); overview.reload(); }} /><ToastViewport messages={toastMessages} onDismiss={dismissToast} /></>;
   const active = navigation.find((item) => item.id === section);
   const name = overview.data?.user.public_name ?? overview.data?.user.email?.split("@")[0] ?? "Hazbit";
-  const page = section === "overview" ? <OverviewPage overview={overview} navigate={navigate} notify={setToast} />
-    : section === "subscription" ? <SubscriptionPage current={overview.data?.subscription ?? null} notify={setToast} />
-    : section === "devices" ? <DevicesPage overview={overview.data} notify={setToast} />
-    : section === "family" ? <FamilyPage identity={overview.data?.user.id ?? ""} subscriptionId={overview.data?.subscription?.id ?? null} notify={setToast} />
-    : section === "rewards" ? <RewardsPage notify={setToast} />
-    : section === "support" ? <SupportPage notify={setToast} />
-    : <ProfilePage overview={overview.data} theme={theme} setTheme={setTheme} onLogout={() => { void logout().finally(() => setAuthenticated(false)); }} />;
+  const page = section === "overview" ? <OverviewExperience data={overview.data} loading={overview.loading} error={overview.error} navigate={navigate} notify={notify} />
+    : section === "subscription" ? <SubscriptionPage current={overview.data?.subscription ?? null} notify={notify} onOpenBilling={() => navigate("billing")} onPurchased={overview.reload} />
+    : section === "billing" ? <BillingPage notify={notify} />
+    : section === "devices" ? <DevicesPage overview={overview.data} notify={notify} />
+    : section === "family" ? <FamilyPage identity={overview.data?.user.id ?? ""} subscriptionId={overview.data?.subscription?.id ?? null} notify={notify} />
+    : section === "rewards" ? <RewardsPage notify={notify} />
+    : section === "support" ? <SupportPage notify={notify} />
+    : <ProfilePage overview={overview.data} theme={theme} setTheme={setTheme} onLogout={() => { void logout().finally(() => { setAuthenticated(false); setExperience("site"); }); }} />;
 
   return <div className="customer-shell">
     <aside className={`customer-sidebar ${menu ? "open" : ""}`}>
       <Brand />
+      <button className="sidebar-site-link" onClick={openSite}><Globe2 size={16} /><span>{t("Back to website", "Вернуться на сайт")}</span></button>
       <nav aria-label={t("Customer sections", "Разделы кабинета")}>{navigation.map(({ id, icon: Icon, en, ru }) => <button key={id} className={section === id ? "active" : ""} onClick={() => navigate(id)}><Icon size={18} /><span>{t(en, ru)}</span>{id === "support" && overview.data?.open_ticket_count ? <b>{overview.data.open_ticket_count}</b> : null}</button>)}</nav>
       <div className="sidebar-signal"><span><i /> {t("Protected", "Под защитой")}</span><small>{t("Private route is active", "Приватный маршрут активен")}</small></div>
       <button className="sidebar-profile" onClick={() => navigate("profile")}><span>{initials(name)}</span><div><b>{name}</b><small>{overview.data?.user.email ?? t("Profile", "Профиль")}</small></div><ChevronRight size={16} /></button>
@@ -80,51 +98,31 @@ export default function App() {
           {demoMode && <span className="demo-label"><Sparkles size={13} /> Demo</span>}
           <div className="language-toggle" role="group" aria-label={t("Interface language", "Язык интерфейса")}><Languages size={14} /><button className={locale === "ru" ? "active" : ""} aria-pressed={locale === "ru"} onClick={() => setLocale("ru")}>RU</button><button className={locale === "en" ? "active" : ""} aria-pressed={locale === "en"} onClick={() => setLocale("en")}>EN</button></div>
           <button className="icon-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={t("Change theme", "Сменить тему")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>
-          <button className="icon-button notification-button" aria-label={t("Notifications", "Уведомления")} onClick={() => setToast(t("You are all caught up", "Новых уведомлений нет"))}><Bell size={17} /><i /></button>
+          <button className="icon-button notification-button" aria-label={t("Notifications", "Уведомления")} onClick={() => pushToast({ title: t("You are all caught up", "Новых уведомлений нет"), description: t("Important events will appear here", "Важные события появятся здесь"), tone: "info" })}><Bell size={17} /><i /></button>
         </div>
       </header>
       <div className="customer-content">{page}</div>
     </main>
     <nav className="mobile-dock" aria-label={t("Mobile navigation", "Мобильная навигация")}>{navigation.slice(0, 5).map(({ id, icon: Icon, en, ru }) => <button key={id} className={section === id ? "active" : ""} onClick={() => navigate(id)}><Icon size={20} /><span>{t(en, ru)}</span></button>)}</nav>
-    {toast && <div className="toast"><Check size={16} /> {toast}</div>}
+    <ToastViewport messages={toastMessages} onDismiss={dismissToast} />
   </div>;
 }
 
-function Login({ onDone }: { onDone: () => void }) {
-  const { locale, setLocale, t } = useI18n(); const [email, setEmail] = useState(""); const [code, setCode] = useState(""); const [step, setStep] = useState<"email" | "code">("email"); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
-  const submit = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setError(null); try { if (step === "email") { await startEmailLogin(email); setStep("code"); } else { await verifyEmailLogin(email, code); onDone(); } } catch (value) { setError(value instanceof Error ? value.message : t("Unable to sign in", "Не удалось войти")); } finally { setBusy(false); } };
-  return <main className="login-page"><div className="login-aurora" /><section className="login-story"><Brand /><div><span className="eyebrow"><ShieldCheck size={14} /> {t("Private by design", "Приватность по умолчанию")}</span><h1>{t("Your private line to the open internet.", "Ваша приватная линия в открытый интернет.")}</h1><p>{t("One quiet place for your connection, devices and the people you protect.", "Спокойное пространство для подключения, устройств и тех, кого вы защищаете.")}</p></div><div className="login-trust"><span><LockKeyhole size={15} /> {t("Private access", "Приватный доступ")}</span><span><Zap size={15} /> VLESS</span><span><Globe2 size={15} /> {t("Device control", "Контроль устройств")}</span></div></section><section className="login-panel"><div className="login-language"><button onClick={() => setLocale(locale === "ru" ? "en" : "ru")}>{locale.toUpperCase()} <Languages size={14} /></button></div><form className="login-card" onSubmit={submit}><div className="login-symbol"><Wifi size={23} /></div><p className="eyebrow">HAZBIT ACCESS</p><h2>{step === "email" ? t("Welcome back", "С возвращением") : t("Check your inbox", "Проверьте почту")}</h2><p>{step === "email" ? t("We will send a one-time access code. No password needed.", "Отправим одноразовый код. Пароль не нужен.") : t(`Enter the code sent to ${email}.`, `Введите код, отправленный на ${email}.`)}</p>{step === "email" ? <label>{t("Email", "Электронная почта")}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" required autoFocus /></label> : <label>{t("One-time code", "Одноразовый код")}<input className="otp" inputMode="numeric" pattern="[0-9]{6,8}" value={code} onChange={(event) => setCode(event.target.value)} placeholder="000000" required autoFocus /></label>}{error && <div className="inline-error">{error}</div>}<button className="primary-button login-button" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />} {step === "email" ? t("Continue securely", "Продолжить безопасно") : t("Open Hazbit", "Открыть Hazbit")}</button>{step === "code" && <button type="button" className="text-button" onClick={() => setStep("email")}>{t("Use another email", "Указать другую почту")}</button>}<small><LockKeyhole size={12} /> {t("Protected by rotating sessions and device controls", "Защищено ротацией сессий и контролем устройств")}</small></form></section></main>;
-}
-
-function OverviewPage({ overview, navigate, notify }: { overview: LoadState<Overview> & { reload: () => void }; navigate: (section: Section) => void; notify: (value: string) => void }) {
-  const { locale, t } = useI18n(); const data = overview.data;
-  if (!data) return <ResourceState state={overview} />;
-  const connected = data.vpn?.observed_status === "active"; const end = data.subscription?.current_period_ends_at ?? null; const days = end ? Math.max(0, Math.ceil((new Date(end).getTime() - Date.now()) / 86_400_000)) : 0;
-  return <div className="page-stack overview-page"><section className="connection-hero"><div className="hero-copy"><span className="eyebrow"><i className="live-dot" /> {connected ? t("Private route active", "Приватный маршрут активен") : t("Ready to connect", "Готово к подключению")}</span><h2>{connected ? t("You are protected.", "Вы под защитой.") : t("Your connection is paused.", "Подключение приостановлено.")}</h2><p>{connected ? t("Your VLESS route is active and synchronized with the service.", "Маршрут VLESS активен и синхронизирован с сервисом.") : t("Open your VLESS client to restore the private route.", "Откройте VLESS-клиент, чтобы восстановить приватный маршрут.")}</p><div className="hero-actions"><button className="primary-button" onClick={() => navigate("devices")}><Download size={16} /> {t("Set up a device", "Настроить устройство")}</button><button className="glass-button" onClick={() => notify(t("Connection status refreshed", "Статус подключения обновлён"))}><ScanLine size={16} /> {t("Check signal", "Проверить сигнал")}</button></div></div><SignalOrb connected={connected} /><div className="hero-meta"><span><Globe2 size={15} /> {t("Automatic routing", "Автоматический маршрут")}</span><span><Shield size={15} /> VLESS</span></div></section>
-    <section className="overview-grid"><article className="surface-card subscription-glance"><header><div><p className="eyebrow">{t("Current access", "Текущий доступ")}</p><h3>{data.subscription?.plan_name ?? t("No subscription", "Нет подписки")}</h3></div><Status value={data.subscription?.status ?? "inactive"} /></header><div className="days-ring" style={{ "--progress": `${Math.min(100, days / 60 * 100)}%` } as React.CSSProperties}><strong>{days}</strong><span>{t("days left", "дней осталось")}</span></div><div className="card-row"><span><CalendarDays size={15} /> {t("Valid until", "Действует до")}</span><b>{date(end, locale)}</b></div><button className="card-link" onClick={() => navigate("subscription")}>{t("Manage subscription", "Управлять подпиской")} <ChevronRight size={15} /></button></article>
-      <article className="surface-card device-glance"><header><div><p className="eyebrow">{t("Your perimeter", "Ваш периметр")}</p><h3>{t("Trusted devices", "Доверенные устройства")}</h3></div><MonitorSmartphone size={20} /></header><div className="big-number"><strong>{data.active_device_count}</strong><span>/ {data.subscription?.device_limit ?? 0}</span></div><div className="usage-track"><i style={{ width: `${Math.min(100, data.active_device_count / Math.max(1, data.subscription?.device_limit ?? 1) * 100)}%` }} /></div><p>{t("Every active device shares the available device allowance.", "Все активные устройства используют общий лимит устройств.")}</p><button className="card-link" onClick={() => navigate("devices")}>{t("Open devices", "Открыть устройства")} <ChevronRight size={15} /></button></article>
-      <article className="surface-card family-glance"><header><div><p className="eyebrow">{t("Shared protection", "Общая защита")}</p><h3>{data.family_group_name ?? t("Create a family", "Создайте семью")}</h3></div><UsersRound size={20} /></header><div className="family-constellation"><span>A</span><span>T</span><span>S</span><i><Plus size={15} /></i></div><p>{data.family_group_id ? t("Your household shares one subscription without sharing accounts.", "Семья использует одну подписку без передачи аккаунтов.") : t("Invite people you trust and share protection.", "Пригласите близких и поделитесь защитой.")}</p><button className="card-link" onClick={() => navigate("family")}>{t("Manage family", "Управлять семьёй")} <ChevronRight size={15} /></button></article>
-    </section>
-    <section className="quick-grid"><button onClick={() => navigate("rewards")}><span className="quick-icon violet"><Gift size={19} /></span><div><b>{t("Invite & earn", "Приглашайте и получайте дни")}</b><small>{t("30 bonus days earned", "Получено 30 бонусных дней")}</small></div><ArrowUpRight size={16} /></button><button onClick={() => navigate("support")}><span className="quick-icon amber"><MessageCircle size={19} /></span><div><b>{t("Talk to support", "Написать в поддержку")}</b><small>{data.open_ticket_count ? t(`${data.open_ticket_count} conversation needs you`, `${data.open_ticket_count} обращение ждёт вас`) : t("We usually reply in 5 minutes", "Обычно отвечаем за 5 минут")}</small></div><ArrowUpRight size={16} /></button></section>
-  </div>;
-}
-
-function SubscriptionPage({ current, notify }: { current: Overview["subscription"]; notify: (value: string) => void }) {
+function SubscriptionPage({ current, notify, onOpenBilling, onPurchased }: { current: Overview["subscription"]; notify: (value: string) => void; onOpenBilling: () => void; onPurchased: () => void }) {
   const { locale, t } = useI18n(); const plans = useResource<Plan[]>("/portal/plans"); const payments = useResource<Payment[]>("/portal/payments"); const [selected, setSelected] = useState<{ plan: Plan; priceId: string } | null>(null);
   return <div className="page-stack"><PageIntro eyebrow={t("Access plans", "Тарифы доступа")} title={t("Choose your protection", "Выберите уровень защиты")} text={t("Upgrade without losing your devices, family or remaining time.", "Меняйте тариф без потери устройств, семьи и оставшегося времени.")} />
     {!plans.data ? <ResourceState state={plans} /> : <section className="plan-grid">{plans.data.map((plan) => { const active = current?.plan_slug === plan.slug; const price = plan.prices[0]; return <article className={`plan-card ${plan.slug} ${active ? "current" : ""}`} key={plan.id}>{active && <span className="current-flag"><BadgeCheck size={13} /> {t("Current plan", "Текущий тариф")}</span>}<header><p>0{plans.data!.indexOf(plan) + 1}</p><h3>{plan.name}</h3></header><p>{t(plan.description ?? "Private access", plan.slug === "family" ? "Один защищённый периметр для близких и всех устройств." : plan.slug === "premium" ? "Больше устройств, быстрые маршруты и усиленная защита." : "Приватный доступ для одного человека и повседневных задач.")}</p><div className="plan-price"><strong>{money(price?.amount_minor ?? 0, price?.currency ?? "RUB", locale)}</strong><span>/ {t("month", "месяц")}</span></div><ul><li><Check size={15} /> {plan.device_limit} {t("devices", "устройств")}</li><li><Check size={15} /> {plan.family_member_limit ? `${plan.family_member_limit} ${t("family members", "участников семьи")}` : t("Personal access", "Личный доступ")}</li><li><Check size={15} /> {t("Unlimited traffic", "Безлимитный трафик")}</li></ul><button className={active ? "quiet-button" : "primary-button"} disabled={active || !price} onClick={() => price && setSelected({ plan, priceId: price.id })}>{active ? t("Active", "Активен") : t("Choose plan", "Выбрать тариф")}</button></article>; })}</section>}
     <section className="surface-card history-card"><header><div><p className="eyebrow">{t("Billing history", "История платежей")}</p><h3>{t("Recent payments", "Последние платежи")}</h3></div><CreditCard size={20} /></header>{payments.data?.length ? <div className="payment-list">{payments.data.map((payment) => <div key={payment.id}><span className="payment-icon"><CreditCard size={17} /></span><div><b>{money(payment.amount_minor, payment.currency, locale)}</b><small>{date(payment.created_at, locale)} · {shortId(payment.id)}</small></div><Status value={payment.status} /></div>)}</div> : <Empty icon={CreditCard} text={t("No payments yet", "Платежей пока нет")} />}</section>
-    {selected && <PaymentDialog selection={selected} onClose={() => setSelected(null)} onDone={() => { setSelected(null); payments.reload(); notify(t("Receipt accepted for verification", "Чек принят на проверку")); }} />}
+    {selected && <PaymentDialog selection={selected} onClose={() => setSelected(null)} onOpenBilling={onOpenBilling} onDone={() => { setSelected(null); payments.reload(); onPurchased(); notify(t("Plan paid from your Hazbit balance", "Тариф оплачен с баланса Hazbit")); }} />}
   </div>;
 }
 
-function PaymentDialog({ selection, onClose, onDone }: { selection: { plan: Plan; priceId: string }; onClose: () => void; onDone: () => void }) {
-  const { locale, t } = useI18n(); const price = selection.plan.prices.find((item) => item.id === selection.priceId)!; const [promo, setPromo] = useState(""); const [preview, setPreview] = useState<PromoPreview | null>(null); const [paymentId, setPaymentId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
-  const checkPromo = async () => { setBusy(true); setError(null); try { setPreview(await api<PromoPreview>("/promo-codes/preview", { method: "POST", body: JSON.stringify({ code: promo, plan_price_id: price.id }) })); } catch (value) { setError(value instanceof Error ? value.message : "Promo failed"); } finally { setBusy(false); } };
-  const create = async () => { setBusy(true); setError(null); try { const result = await api<{ id: string }>("/payments/intents", { method: "POST", headers: { "Idempotency-Key": idempotencyKey("payment") }, body: JSON.stringify({ plan_price_id: price.id, promo_code: preview?.code ?? null }) }); setPaymentId(result.id); } catch (value) { setError(value instanceof Error ? value.message : "Payment failed"); } finally { setBusy(false); } };
-  const upload = async (file: File) => { if (!paymentId) return; setBusy(true); setError(null); try { await uploadPaymentEvidence(paymentId, file); onDone(); } catch (value) { setError(value instanceof Error ? value.message : "Upload failed"); } finally { setBusy(false); } };
-  const total = preview?.final_amount_minor ?? price.amount_minor;
-  return <Modal onClose={onClose} className="payment-modal"><div className="modal-heading"><span className="modal-icon"><CreditCard size={20} /></span><div><p className="eyebrow">{t("Secure checkout", "Безопасная оплата")}</p><h2>{selection.plan.name}</h2></div></div>{!paymentId ? <><div className="checkout-summary"><span>{t("Plan", "Тариф")}<b>{selection.plan.name} · {price.term_months} {t("mo.", "мес.")}</b></span>{preview && <span>{t("Promo discount", "Скидка по промокоду")}<b className="positive">−{money(preview.discount_amount_minor ?? 0, price.currency, locale)}</b></span>}<span className="checkout-total">{t("Total", "Итого")}<strong>{money(total, price.currency, locale)}</strong></span></div><div className="promo-entry"><input value={promo} onChange={(event) => setPromo(event.target.value.toUpperCase())} placeholder={t("Promo code", "Промокод")} /><button onClick={checkPromo} disabled={busy || promo.length < 3}>{t("Apply", "Применить")}</button></div><p className="modal-note"><ShieldCheck size={14} /> {t("Create an intent, make the transfer and upload your receipt. Gemini Vision checks it before activation.", "Создайте платёж, выполните перевод и загрузите чек. Gemini Vision проверит его перед активацией.")}</p><button className="primary-button wide" onClick={create} disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <ArrowUpRight size={16} />} {t("Create payment", "Создать платёж")}</button></> : <div className="receipt-step"><span className="receipt-orb"><Upload size={25} /></span><h3>{t("Upload your receipt", "Загрузите чек")}</h3><p>{t("JPEG, PNG or WebP up to 8 MB. Personal details stay encrypted.", "JPEG, PNG или WebP до 8 МБ. Персональные данные остаются зашифрованными.")}</p><label className="upload-button">{busy ? <LoaderCircle className="spin" size={17} /> : <Upload size={17} />} {t("Choose receipt", "Выбрать чек")}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} /></label></div>}{error && <div className="inline-error">{error}</div>}</Modal>;
+function PaymentDialog({ selection, onClose, onDone, onOpenBilling }: { selection: { plan: Plan; priceId: string }; onClose: () => void; onDone: () => void; onOpenBilling: () => void }) {
+  const { locale, t } = useI18n(); const price = selection.plan.prices.find((item) => item.id === selection.priceId)!; const wallet = useResource<Wallet>("/billing/wallet"); const [autoRenew, setAutoRenew] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const enough = (wallet.data?.balance_minor ?? 0) >= price.amount_minor;
+  const purchase = async () => { setBusy(true); setError(null); try { await api<WalletPurchase>("/billing/purchases", { method: "POST", headers: { "Idempotency-Key": idempotencyKey("wallet-purchase") }, body: JSON.stringify({ plan_price_id: price.id, auto_renew: autoRenew }) }); onDone(); } catch (value) { setError(value instanceof Error ? value.message : t("Payment failed", "Не удалось оплатить тариф")); } finally { setBusy(false); } };
+  const openBalance = () => { onClose(); onOpenBilling(); };
+  return <Modal onClose={onClose} className="payment-modal"><div className="modal-heading"><span className="modal-icon"><WalletCards size={20} /></span><div><p className="eyebrow">{t("Hazbit balance", "Баланс Hazbit")}</p><h2>{selection.plan.name}</h2></div></div><div className="checkout-summary"><span>{t("Plan", "Тариф")}<b>{selection.plan.name} · {price.term_months} {t("mo.", "мес.")}</b></span><span>{t("Available", "Доступно")}<b className={enough ? "positive" : ""}>{wallet.loading ? "…" : money(wallet.data?.balance_minor ?? 0, wallet.data?.currency ?? price.currency, locale)}</b></span><span className="checkout-total">{t("To be charged", "К списанию")}<strong>{money(price.amount_minor, price.currency, locale)}</strong></span></div><label className="wallet-renew-choice"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span><b>{t("Renew automatically", "Продлевать автоматически")}</b><small>{t("Only from your Hazbit balance. You can disable it anytime.", "Только с баланса Hazbit. Можно отключить в любой момент.")}</small></span></label><p className="modal-note"><ShieldCheck size={14} /> {t("No bank details are stored. Balance movements are recorded in the ledger.", "Банковские данные не сохраняются. Все движения баланса фиксируются в журнале.")}</p>{error && <div className="inline-error" role="alert">{error}</div>}{!wallet.loading && !enough ? <button className="primary-button wide" onClick={openBalance}><WalletCards size={16} /> {t("Top up balance", "Пополнить баланс")}</button> : <button className="primary-button wide" onClick={purchase} disabled={busy || wallet.loading}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} {t("Pay from balance", "Оплатить с баланса")}</button>}</Modal>;
 }
 
 function DevicesPage({ overview, notify }: { overview: Overview | null; notify: (value: string) => void }) {
@@ -214,12 +212,23 @@ function ProfilePage({ overview, theme, setTheme, onLogout }: { overview: Overvi
 
 function Brand() { return <div className="brand"><span className="brand-mark"><i /><i /><i /></span><span>HAZBIT<small>PRIVATE NETWORK</small></span></div>; }
 function PageIntro({ eyebrow, title, text, action }: { eyebrow: string; title: string; text: string; action?: ReactNode }) { return <section className="page-intro"><div><p>{eyebrow}</p><h2>{title}</h2><span>{text}</span></div>{action}</section>; }
-function SignalOrb({ connected }: { connected: boolean }) { return <div className={`signal-orb ${connected ? "connected" : ""}`} aria-label={connected ? "Connected" : "Disconnected"}><i /><i /><i /><span>{connected ? <ShieldCheck size={35} /> : <WifiOff size={35} />}</span></div>; }
 function DeviceIcon({ platform }: { platform: string | null }) { return platform?.toLowerCase().includes("tv") ? <Router size={23} /> : platform?.toLowerCase().includes("mac") || platform?.toLowerCase().includes("window") ? <MonitorSmartphone size={23} /> : <Smartphone size={23} />; }
 function Status({ value }: { value: string }) { const { t } = useI18n(); const label: Record<string, [string, string]> = { active: ["Active", "Активен"], pending: ["Pending", "Ожидает"], pending_upload: ["Awaiting receipt", "Ждёт чек"], analyzing: ["Analyzing", "Проверяется"], approved: ["Approved", "Подтверждён"], activated: ["Activated", "Активирован"], waiting_user: ["Waiting for you", "Ждёт вас"], open: ["Open", "Открыт"], in_progress: ["In progress", "В работе"], closed: ["Closed", "Закрыт"], verified: ["Verified", "Подтверждён"], trusted: ["Trusted", "Доверенное"], inactive: ["Inactive", "Неактивен"] }; const copy = label[value] ?? [titleCase(value), titleCase(value)]; return <span className={`status ${value}`}><i /> {t(copy[0], copy[1])}</span>; }
 function Empty({ icon: Icon, text }: { icon: LucideIcon; text: string }) { return <div className="empty-state"><Icon size={24} /><span>{text}</span></div>; }
 function ResourceState({ state }: { state: LoadState<unknown> }) { const { t } = useI18n(); return <div className="resource-state">{state.loading ? <><LoaderCircle className="spin" size={22} /><span>{t("Loading your secure space…", "Загружаем защищённое пространство…")}</span></> : <><CircleHelp size={22} /><span>{state.error ?? t("Nothing here yet", "Здесь пока ничего нет")}</span></>}</div>; }
-function Modal({ children, onClose, className = "" }: { children: ReactNode; onClose: () => void; className?: string }) { const { t } = useI18n(); return <div className="modal-layer"><button className="modal-scrim" onClick={onClose} aria-label={t("Close dialog", "Закрыть окно")} /><section className={`modal ${className}`}><button className="modal-close icon-button" onClick={onClose} aria-label={t("Close", "Закрыть")}><X size={17} /></button>{children}</section></div>; }
+function Modal({ children, onClose, className = "" }: { children: ReactNode; onClose: () => void; className?: string }) {
+  const { t } = useI18n();
+  return createPortal(
+    <div className="modal-layer">
+      <button className="modal-scrim" onClick={onClose} aria-label={t("Close dialog", "Закрыть окно")} />
+      <section className={`modal ${className}`} role="dialog" aria-modal="true">
+        <button className="modal-close icon-button" onClick={onClose} aria-label={t("Close", "Закрыть")}><X size={17} /></button>
+        {children}
+      </section>
+    </div>,
+    document.body,
+  );
+}
 
 const initials = (value: string) => value.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "HZ";
 const titleCase = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());

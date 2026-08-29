@@ -6,6 +6,16 @@ import pytest
 from app.core.config import DatabaseSettings, LaunchSettings, Settings
 from pydantic import ValidationError
 
+PRODUCTION_BILLING = {
+    "platega": {
+        "enabled": True,
+        "merchant_id": "merchant-id",
+        "secret": "provider-secret",
+        "success_url": "https://hazbit.app/#billing/success",
+        "failed_url": "https://hazbit.app/#billing/failed",
+    }
+}
+
 
 def test_database_url_requires_asyncpg() -> None:
     with pytest.raises(ValidationError, match=r"postgresql\+asyncpg"):
@@ -69,11 +79,13 @@ def test_production_accepts_complete_auth_configuration() -> None:
             "refresh_token_secret": "r" * 32,
             "fingerprint_secret": "f" * 32,
             "telegram": {"bot_token": "123456:production-token"},
-            "email": {
-                "backend": "smtp",
-                "from_address": "auth@hazbit.app",
-                "smtp_host": "smtp.hazbit.app",
-            },
+                "email": {
+                    "backend": "smtp",
+                    "from_address": "auth@hazbit.app",
+                    "smtp_host": "smtp.hazbit.app",
+                    "invitation_secret": "v" * 32,
+                    "invitation_url": "https://admin.hazbit.app/#staff-invite",
+                },
             "cookies": {"secure": True},
         },
         vpn={
@@ -102,6 +114,7 @@ def test_production_accepts_complete_auth_configuration() -> None:
                 "secret_access_key": "storage-secret",
             },
         },
+        billing=PRODUCTION_BILLING,
         referrals={"share_url_prefix": "https://t.me/hazbit_bot?start=ref_"},
         launch={
             "super_admin_email": "owner@hazbit.app",
@@ -114,6 +127,54 @@ def test_production_accepts_complete_auth_configuration() -> None:
     )
 
     assert settings.auth.cookies.secure is True
+
+
+def test_production_allows_explicitly_disabled_optional_integrations() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="production",
+        log_format="json",
+        docs_enabled=False,
+        allowed_hosts=["api.hazbit.app"],
+        auth={
+            "jwt": {"secret": "j" * 32},
+            "otp": {"secret": "o" * 32},
+            "refresh_token_secret": "r" * 32,
+            "fingerprint_secret": "f" * 32,
+            "email": {
+                "backend": "smtp",
+                "from_address": "auth@hazbit.app",
+                "smtp_host": "smtp.hazbit.app",
+                "invitation_secret": "v" * 32,
+                "invitation_url": "https://admin.hazbit.app/#staff-invite",
+            },
+            "cookies": {"secure": True},
+        },
+        vpn={
+            "adapter": {
+                "base_url": "https://remnawave.hazbit.app",
+                "internal_token": "i" * 32,
+            },
+            "subscription_url_secret": "s" * 32,
+        },
+        features={
+            "billing": False,
+            "payment_ai": False,
+            "referrals": False,
+            "telegram_bots": False,
+        },
+        launch={
+            "super_admin_email": "owner@hazbit.app",
+            "plan_prices": [
+                {"plan_slug": "basic", "amount_minor": 49900},
+                {"plan_slug": "premium", "amount_minor": 79900},
+                {"plan_slug": "family", "amount_minor": 119900},
+            ],
+        },
+    )
+
+    assert settings.features.billing is False
+    assert settings.auth.telegram.bot_token.get_secret_value() == ""
 
 
 def test_production_allows_explicit_private_remnawave_adapter() -> None:
@@ -129,11 +190,13 @@ def test_production_allows_explicit_private_remnawave_adapter() -> None:
             "refresh_token_secret": "r" * 32,
             "fingerprint_secret": "f" * 32,
             "telegram": {"bot_token": "123456:production-token"},
-            "email": {
-                "backend": "smtp",
-                "from_address": "auth@hazbit.app",
-                "smtp_host": "smtp.hazbit.app",
-            },
+                "email": {
+                    "backend": "smtp",
+                    "from_address": "auth@hazbit.app",
+                    "smtp_host": "smtp.hazbit.app",
+                    "invitation_secret": "v" * 32,
+                    "invitation_url": "https://admin.hazbit.app/#staff-invite",
+                },
             "cookies": {"secure": True},
         },
         vpn={
@@ -158,6 +221,7 @@ def test_production_allows_explicit_private_remnawave_adapter() -> None:
             "gemini": {"api_key": "production-gemini-key"},
             "storage": {"backend": "s3"},
         },
+        billing=PRODUCTION_BILLING,
         referrals={"share_url_prefix": "https://t.me/hazbit_bot?start=ref_"},
         launch={
             "super_admin_email": "owner@hazbit.app",
@@ -186,7 +250,12 @@ def test_production_rejects_public_insecure_remnawave_adapter() -> None:
                 "refresh_token_secret": "r" * 32,
                 "fingerprint_secret": "f" * 32,
                 "telegram": {"bot_token": "123456:production-token"},
-                "email": {"backend": "smtp", "smtp_host": "smtp.hazbit.app"},
+                "email": {
+                    "backend": "smtp",
+                    "smtp_host": "smtp.hazbit.app",
+                    "invitation_secret": "v" * 32,
+                    "invitation_url": "https://admin.hazbit.app/#staff-invite",
+                },
                 "cookies": {"secure": True},
             },
             vpn={
@@ -218,6 +287,16 @@ def test_production_rejects_public_insecure_remnawave_adapter() -> None:
 def test_api_prefix_is_normalized() -> None:
     with pytest.raises(ValidationError, match="must not end"):
         Settings(_env_file=None, api_v1_prefix="/api/v1/")
+
+
+def test_features_load_from_nested_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HAZBIT_FEATURES__PAYMENT_AI", "false")
+    monkeypatch.setenv("HAZBIT_FEATURES__SUPPORT", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.features.payment_ai is False
+    assert settings.features.support is True
 
 
 def test_launch_prices_must_be_unique() -> None:

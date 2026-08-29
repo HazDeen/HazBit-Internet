@@ -13,3 +13,6 @@ def test_customer_portal_routes_are_registered_and_protected(test_settings: Sett
     ):
         assert path in schema["paths"]
         assert schema["paths"][path]["get"]["security"] == [{"HTTPBearer": []}]
+
+    assert "/api/v1/catalog/plans" in schema["paths"]
+    assert "security" not in schema["paths"]["/api/v1/catalog/plans"]["get"]

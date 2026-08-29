@@ -4,12 +4,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from redis.exceptions import RedisError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import ApplicationError
+from app.core.features import FEATURE_LABELS, FeatureControlStore, FeatureKey, FeatureState
 from app.core.ids import uuid7
+from app.integrations.redis import RedisManager
+from app.integrations.remnawave_adapter import AdapterError, AdapterNodeState
 from app.modules.admin.repository import AdminRepository
 from app.modules.admin.schemas import (
     AdminDashboardResponse,
@@ -20,12 +24,14 @@ from app.modules.admin.schemas import (
     AdminFamilyGroupResponse,
     AdminFamilyInvitationResponse,
     AdminFamilyMemberResponse,
+    AdminFeatureResponse,
     AdminPaymentPage,
     AdminPaymentSummary,
     AdminPlanPriceInput,
     AdminPlanPriceResponse,
     AdminPlanResponse,
     AdminPlanVersionResponse,
+    AdminRemnawaveNodeResponse,
     AdminSettingsResponse,
     AdminSubscriptionListItem,
     AdminSubscriptionPage,
@@ -45,12 +51,24 @@ from app.modules.payments.models import OutboxEvent, Payment, PlanPrice
 from app.modules.referrals.models import Plan, SubscriptionPeriod
 from app.modules.vpn.enums import CommandStatus, CommandType, DesiredVpnStatus
 from app.modules.vpn.models import Device, PlanVersion, Subscription, VpnAccount, VpnSyncCommand
+from app.modules.vpn.runtime import VpnRuntime
 
 
 class AdminService:
-    def __init__(self, *, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        *,
+        session: AsyncSession,
+        settings: Settings,
+        redis: RedisManager | None = None,
+        vpn_runtime: VpnRuntime | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
+        self._feature_store = (
+            FeatureControlStore(redis.client, redis_settings=settings.redis) if redis else None
+        )
+        self._adapter = vpn_runtime.adapter if vpn_runtime else None
         self._repository = AdminRepository(session)
 
     async def dashboard(self) -> AdminDashboardResponse:
@@ -633,7 +651,19 @@ class AdminService:
             offset=offset,
         )
 
-    def settings(self) -> AdminSettingsResponse:
+    async def settings(self) -> AdminSettingsResponse:
+        features = (
+            await self._feature_store.states(self._settings.features)
+            if self._feature_store
+            else [
+                FeatureState(
+                    key=key,
+                    configured=bool(getattr(self._settings.features, key.value)),
+                    runtime_enabled=True,
+                )
+                for key in FeatureKey
+            ]
+        )
         return AdminSettingsResponse(
             environment=self._settings.environment,
             app_version=self._settings.app_version,
@@ -646,7 +676,133 @@ class AdminService:
             default_promo_plan=self._settings.promotions.default_plan_slug,
             support_create_limit_per_day=self._settings.support.create_rate_limit_per_day,
             support_message_limit_per_hour=self._settings.support.message_rate_limit_per_hour,
+            features=[
+                AdminFeatureResponse(
+                    key=state.key,
+                    label=FEATURE_LABELS[state.key][0],
+                    description=FEATURE_LABELS[state.key][1],
+                    configured=state.configured,
+                    runtime_enabled=state.runtime_enabled,
+                    enabled=state.enabled,
+                )
+                for state in features
+            ],
         )
+
+    async def update_feature(
+        self,
+        *,
+        feature: FeatureKey,
+        enabled: bool,
+        actor_user_id: UUID,
+        reason: str,
+    ) -> AdminFeatureResponse:
+        if self._feature_store is None:
+            raise ApplicationError(
+                "feature_control_unavailable", "Feature control is unavailable.", 503
+            )
+        configured = bool(getattr(self._settings.features, feature.value))
+        if enabled and not configured:
+            raise ApplicationError(
+                "feature_disabled_by_environment",
+                "The deployment configuration disables this feature.",
+                409,
+            )
+        previous = next(
+            state
+            for state in await self._feature_store.states(self._settings.features)
+            if state.key == feature
+        )
+        try:
+            async with self._session.begin():
+                self._session.add(
+                    AuditLog(
+                        actor_user_id=actor_user_id,
+                        actor_type="user",
+                        action="admin.feature_control_updated",
+                        entity_type="feature_control",
+                        entity_id=None,
+                        reason=reason,
+                        before_state={"key": feature.value, "enabled": previous.enabled},
+                        after_state={"key": feature.value, "enabled": configured and enabled},
+                    )
+                )
+                await self._session.flush()
+                await self._feature_store.set_runtime(feature, enabled)
+        except Exception:
+            try:
+                await self._feature_store.set_runtime(feature, previous.runtime_enabled)
+            except RedisError:
+                pass
+            raise
+        label, description = FEATURE_LABELS[feature]
+        return AdminFeatureResponse(
+            key=feature,
+            label=label,
+            description=description,
+            configured=configured,
+            runtime_enabled=enabled,
+            enabled=configured and enabled,
+        )
+
+    async def remnawave_nodes(self) -> list[AdminRemnawaveNodeResponse]:
+        if self._adapter is None:
+            raise ApplicationError("adapter_unavailable", "Remnawave adapter is unavailable.", 503)
+        try:
+            result = await self._adapter.list_nodes()
+        except AdapterError as exc:
+            raise ApplicationError(exc.code, exc.detail, exc.status_code) from exc
+        return [self._node_response(node) for node in result.nodes]
+
+    async def set_remnawave_node_state(
+        self,
+        *,
+        node_uuid: UUID,
+        enabled: bool,
+        actor_user_id: UUID,
+        reason: str,
+    ) -> AdminRemnawaveNodeResponse:
+        if self._adapter is None:
+            raise ApplicationError("adapter_unavailable", "Remnawave adapter is unavailable.", 503)
+        async with self._session.begin():
+            self._session.add(
+                AuditLog(
+                    actor_user_id=actor_user_id,
+                    actor_type="user",
+                    action="admin.remnawave_node_state_requested",
+                    entity_type="remnawave_node",
+                    entity_id=node_uuid,
+                    reason=reason,
+                    before_state=None,
+                    after_state={"enabled": enabled},
+                )
+            )
+        try:
+            node = (
+                await self._adapter.enable_node(node_uuid)
+                if enabled
+                else await self._adapter.disable_node(node_uuid)
+            )
+        except AdapterError as exc:
+            raise ApplicationError(exc.code, exc.detail, exc.status_code) from exc
+        async with self._session.begin():
+            self._session.add(
+                AuditLog(
+                    actor_user_id=actor_user_id,
+                    actor_type="user",
+                    action="admin.remnawave_node_state_completed",
+                    entity_type="remnawave_node",
+                    entity_id=node_uuid,
+                    reason=reason,
+                    before_state=None,
+                    after_state={"enabled": enabled, "name": node.name},
+                )
+            )
+        return self._node_response(node)
+
+    @staticmethod
+    def _node_response(node: AdapterNodeState) -> AdminRemnawaveNodeResponse:
+        return AdminRemnawaveNodeResponse(**node.model_dump())
 
     async def _user_list_item(
         self,

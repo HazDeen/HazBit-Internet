@@ -9,18 +9,19 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
+  Cpu,
   Clock3,
   CreditCard,
   Gauge,
   Headphones,
   HeartHandshake,
+  HardDrive,
   KeyRound,
   LayoutDashboard,
   Languages,
   LifeBuoy,
   LoaderCircle,
   LogOut,
-  Menu,
   MailPlus,
   MessageSquareText,
   MonitorSmartphone,
@@ -30,6 +31,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Radio,
   Search,
   Send,
   ServerCog,
@@ -40,6 +42,8 @@ import {
   TicketCheck,
   Trash2,
   UserRound,
+  UserCog,
+  ShieldPlus,
   UserMinus,
   Users,
   WalletCards,
@@ -49,13 +53,17 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
+  acceptStaffInvitation,
   clearSession,
   demoMode,
+  getSessionUser,
   hasSession,
   startEmailLogin,
   verifyEmailLogin,
 } from "./api";
 import { LocaleProvider, useI18n } from "./i18n";
+import { StaffPage } from "./features/staff/StaffPage";
+import { useResource, type LoadState } from "./hooks/useResource";
 import type {
   DashboardData,
   Device,
@@ -66,13 +74,13 @@ import type {
   PromoCode,
   Section,
   SettingsData,
+  FeatureControl,
+  RemnawaveNode,
   Subscription,
   Ticket,
   TicketDetail,
   User,
 } from "./types";
-
-type LoadState<T> = { data: T | null; loading: boolean; error: string | null };
 
 const sectionMeta: Record<Section, { label: string; eyebrow: string; icon: LucideIcon }> = {
   dashboard: { label: "Dashboard", eyebrow: "Network overview", icon: LayoutDashboard },
@@ -85,47 +93,41 @@ const sectionMeta: Record<Section, { label: string; eyebrow: string; icon: Lucid
   "family-groups": { label: "Family Groups", eyebrow: "Shared access", icon: HeartHandshake },
   "vpn-devices": { label: "VPN Devices", eyebrow: "Fleet inventory", icon: MonitorSmartphone },
   settings: { label: "Settings", eyebrow: "Platform policy", icon: Settings },
+  team: { label: "Team", eyebrow: "Roles & permissions", icon: UserCog },
 };
 
-function useResource<T>(path: string): LoadState<T> & { reload: () => void } {
-  const [revision, setRevision] = useState(0);
-  const [state, setState] = useState<LoadState<T>>({
-    data: null,
-    loading: true,
-    error: null,
-  });
-  useEffect(() => {
-    let active = true;
-    setState((current) => ({ ...current, loading: true, error: null }));
-    api<T>(path)
-      .then((data) => active && setState({ data, loading: false, error: null }))
-      .catch((error: unknown) =>
-        active &&
-        setState({
-          data: null,
-          loading: false,
-          error: error instanceof Error ? error.message : "Unable to load data",
-        }),
-      );
-    return () => {
-      active = false;
-    };
-  }, [path, revision]);
-  return { ...state, reload: () => setRevision((value) => value + 1) };
-}
+const sectionPermission: Partial<Record<Section, string>> = {
+  dashboard: "dashboard.read", users: "users.read", subscriptions: "subscriptions.read",
+  payments: "payments.read", tickets: "tickets.read", "promo-codes": "promotions.manage",
+  plans: "plans.manage", "family-groups": "families.manage", "vpn-devices": "vpn.read",
+  settings: "settings.read", team: "staff.manage",
+};
+
+const currentInvitationToken = () => {
+  const hash = window.location.hash.slice(1);
+  if (!hash.startsWith("staff-invite")) return null;
+  return new URLSearchParams(hash.split("?")[1] ?? "").get("token");
+};
 
 function App() {
   const [authenticated, setAuthenticated] = useState(hasSession());
+  const [invitationToken, setInvitationToken] = useState(currentInvitationToken());
+  const invitationAccepted = useCallback(() => {
+    window.location.hash = "team";
+    setInvitationToken(null);
+  }, []);
   return (
     <LocaleProvider>
       {!authenticated
-        ? <Login onAuthenticated={() => setAuthenticated(true)} />
+        ? <Login invitationToken={invitationToken} onAuthenticated={() => { setAuthenticated(true); setInvitationToken(null); }} />
+        : invitationToken
+          ? <StaffInviteActivation token={invitationToken} onAccepted={invitationAccepted} />
         : <AdminApp onLogout={() => setAuthenticated(false)} />}
     </LocaleProvider>
   );
 }
 
-function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
+function Login({ onAuthenticated, invitationToken }: { onAuthenticated: () => void; invitationToken: string | null }) {
   const { locale, t } = useI18n();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -142,7 +144,11 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
         await startEmailLogin(email);
         setPhase("code");
       } else {
-        await verifyEmailLogin(email, code);
+        await verifyEmailLogin(email, code, { allowUser: Boolean(invitationToken) });
+        if (invitationToken) {
+          await acceptStaffInvitation(invitationToken);
+          window.location.hash = "team";
+        }
         onAuthenticated();
       }
     } catch (reason) {
@@ -174,7 +180,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
         <div className="login-language"><LanguageSwitch /></div>
         <form className="login-card" onSubmit={submit}>
           <div className="login-icon"><KeyRound size={22} /></div>
-          <p className="overline">{t("Administrator access")}</p>
+          <p className="overline">{t(invitationToken ? "Team invitation" : "Administrator access")}</p>
           <h2>{t(phase === "email" ? "Sign in to Hazbit" : "Check your inbox")}</h2>
           <p className="muted">
             {phase === "email"
@@ -188,7 +194,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="admin@hazbit.io"
+                placeholder="admin@hazdeen.xyz"
                 autoComplete="email"
                 required
               />
@@ -226,20 +232,32 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
   );
 }
 
+function StaffInviteActivation({ token, onAccepted }: { token: string; onAccepted: () => void }) {
+  const { t } = useI18n();
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    acceptStaffInvitation(token).then(onAccepted).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : t("Invitation could not be accepted"));
+    });
+  }, [onAccepted, t, token]);
+  return <main className="invite-activation"><section className="login-card"><div className="login-icon"><ShieldPlus size={22} /></div><p className="overline">{t("Team invitation")}</p><h2>{t("Activating secure access")}</h2>{error ? <div className="inline-error">{error}</div> : <><LoaderCircle className="spin" size={24} /><p className="muted">{t("Checking the invitation and applying permissions…")}</p></>}</section></main>;
+}
+
 function AdminApp({ onLogout }: { onLogout: () => void }) {
   const { t } = useI18n();
+  const sessionUser = getSessionUser();
+  const canOpen = (key: Section) => demoMode || !sectionPermission[key] || sessionUser.permissions.includes(sectionPermission[key]!);
   const [section, setSection] = useState<Section>(() => {
     const hash = window.location.hash.slice(1) as Section;
-    return hash in sectionMeta ? hash : "dashboard";
+    return hash in sectionMeta && canOpen(hash) ? hash : "dashboard";
   });
-  const [mobileNav, setMobileNav] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const navigate = (value: Section) => {
+    if (!canOpen(value)) return;
     setSection(value);
     window.location.hash = value;
-    setMobileNav(false);
   };
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -252,42 +270,29 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "sidebar-open" : ""}`}>
-        <div className="sidebar-head"><Brand /><button className="icon-button mobile-only" onClick={() => setMobileNav(false)} aria-label={t("Close menu")}><X size={19} /></button></div>
-        <nav className="primary-nav" aria-label={t("Admin sections")}>
-          {(Object.entries(sectionMeta) as [Section, (typeof sectionMeta)[Section]][]).map(([key, item]) => {
+      <header className="control-header">
+        <Brand />
+        <div className="control-context"><p>{t(sectionMeta[section].eyebrow)}</p><h1>{t(sectionMeta[section].label)}</h1></div>
+        <div className="topbar-actions">
+          {demoMode && <span className="demo-badge"><Sparkles size={13} /> {t("Demo data")}</span>}
+          <LanguageSwitch />
+          <button className="icon-button notification-button" aria-label={t("Notifications")} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((value) => !value)}><Bell size={18} /><i /></button>
+          <span className="operator-state"><i /> {t("Operator online")}</span>
+          <button className="control-profile" onClick={logout} aria-label={t("Log out")}><span className="avatar">{initials(sessionUser.email)}</span><span><b>{sessionUser.display_name ?? sessionUser.email ?? "Hazbit Admin"}</b><small>{t(title(sessionUser.roles[0] ?? "staff"))}</small></span><LogOut size={15} /></button>
+        </div>
+      </header>
+      <nav className="control-nav" aria-label={t("Admin sections")}>
+          {(Object.entries(sectionMeta) as [Section, (typeof sectionMeta)[Section]][]).filter(([key]) => canOpen(key)).map(([key, item]) => {
             const Icon = item.icon;
             return (
-              <button key={key} className={section === key ? "nav-item active" : "nav-item"} onClick={() => navigate(key)}>
+              <button key={key} className={section === key ? "control-nav-item active" : "control-nav-item"} onClick={() => navigate(key)}>
                 <Icon size={18} strokeWidth={1.8} /><span>{t(item.label)}</span>
                 {key === "tickets" && <b>23</b>}
               </button>
             );
           })}
-        </nav>
-        <div className="sidebar-foot">
-          <div className="system-card">
-            <div className="system-card-head"><span className="live-dot" /> {t("Systems nominal")}</div>
-            <div><span>API</span><b>{t("Available")}</b></div><div><span>{t("VLESS sync")}</span><b>{t("Synced")}</b></div>
-          </div>
-          <button className="admin-profile" onClick={logout}>
-            <span className="avatar">HZ</span><span><b>Hazbit Admin</b><small>{t("Super admin")}</small></span><LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-      {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label={t("Close navigation")} />}
+      </nav>
       <main className="workspace">
-        <header className="topbar">
-          <button className="icon-button mobile-only" onClick={() => setMobileNav(true)} aria-label={t("Open menu")}><Menu size={20} /></button>
-          <div><p>{t(sectionMeta[section].eyebrow)}</p><h1>{t(sectionMeta[section].label)}</h1></div>
-          <div className="topbar-actions">
-            {demoMode && <span className="demo-badge"><Sparkles size={13} /> {t("Demo data")}</span>}
-            <LanguageSwitch />
-            <button className="icon-button notification-button" aria-label={t("Notifications")} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((value) => !value)}><Bell size={18} /><i /></button>
-            <span className="topbar-divider" />
-            <span className="operator-state"><i /> {t("Operator online")}</span>
-          </div>
-        </header>
         <section className="content">
           {section === "dashboard" && <DashboardPage navigate={navigate} />}
           {section === "users" && <UsersPage notify={notify} />}
@@ -299,6 +304,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
           {section === "family-groups" && <FamilyGroupsPage />}
           {section === "vpn-devices" && <DevicesPage />}
           {section === "settings" && <SettingsPage />}
+          {section === "team" && <StaffPage notify={notify} />}
         </section>
       </main>
       {notificationsOpen && <NotificationCenter navigate={navigate} onClose={() => setNotificationsOpen(false)} />}
@@ -647,6 +653,8 @@ function DevicesPage() {
 function SettingsPage() {
   const { locale, t } = useI18n();
   const resource = useResource<SettingsData>("/admin/settings");
+  const nodes = useResource<RemnawaveNode[]>("/admin/remnawave/nodes");
+  const [action, setAction] = useState<{ type: "feature"; item: FeatureControl } | { type: "node"; item: RemnawaveNode } | null>(null);
   if (!resource.data) return <ResourceState {...resource} />;
   const data = resource.data;
   const groups = [
@@ -656,7 +664,39 @@ function SettingsPage() {
     { title: "Growth policy", icon: Gauge, values: [["Referral reward", locale === "ru" ? `+${data.referrer_days} дн.` : `+${data.referrer_days} days`], ["Referred trial", locale === "ru" ? `${data.referral_days} дн.` : `${data.referral_days} days`], ["Default promo plan", data.default_promo_plan]] },
     { title: "Support limits", icon: TicketCheck, values: [["Tickets / day", String(data.support_create_limit_per_day)], ["Messages / hour", String(data.support_message_limit_per_hour)], ["Internal notes", "Staff only"]] },
   ];
-  return <div className="page-stack"><section className="settings-hero"><div><span className="live-dot" /> {t("Production posture")}</div><h2>{t("Platform policy, without exposed secrets.")}</h2><p>{t("Runtime values are read-only in this console. Sensitive keys remain in the deployment secret store.")}</p></section><div className="settings-grid">{groups.map(({ title: heading, icon: Icon, values }) => <section className="panel settings-card" key={heading}><header><span><Icon size={18} /></span><h3>{t(heading)}</h3></header>{values.map(([label, value]) => <div className="setting-row" key={label}><span>{t(label)}</span><b>{label === "Default promo plan" ? t(title(value)) : t(value)}</b></div>)}</section>)}</div></div>;
+  const completeAction = async (reason: string) => {
+    if (!action) return;
+    if (action.type === "feature") {
+      await api(`/admin/settings/features/${action.item.key}`, { method: "PATCH", body: JSON.stringify({ enabled: !action.item.enabled, reason }) });
+      resource.reload();
+    } else {
+      const operation = action.item.is_disabled ? "enable" : "disable";
+      await api(`/admin/remnawave/nodes/${action.item.uuid}/${operation}`, { method: "POST", body: JSON.stringify({ reason }) });
+      nodes.reload();
+    }
+    setAction(null);
+  };
+  return <div className="page-stack control-settings">
+    <section className="settings-hero"><div><span className="live-dot" /> {t("Operations control")}</div><h2>{locale === "ru" ? "Управление сервисами и VLESS-инфраструктурой." : "Services and VLESS infrastructure, under control."}</h2><p>{locale === "ru" ? "ENV определяет доступность, Control — временную операционную паузу. Секреты никогда не отображаются в браузере." : "ENV defines availability; Control can apply a temporary operational pause. Secrets never reach the browser."}</p></section>
+    <section className="control-section">
+      <PanelHeader eyebrow="Service control" title="Runtime modules" action={<span className="control-legend"><i /> {data.features.filter((item) => item.enabled).length}/{data.features.length} {t("active")}</span>} />
+      <div className="feature-control-grid">{data.features.map((feature) => <article className={`feature-control-card ${feature.enabled ? "enabled" : "paused"}`} key={feature.key}><span className="feature-icon">{feature.key === "billing" ? <CreditCard size={18} /> : feature.key === "support" ? <Headphones size={18} /> : feature.key === "telegram_bots" ? <Send size={18} /> : feature.key === "vpn_provisioning" ? <Network size={18} /> : <Sparkles size={18} />}</span><div><b>{t(feature.label)}</b><small>{t(feature.description)}</small><em>{feature.configured ? (feature.enabled ? t("Available") : t("Paused in Control")) : t("Disabled by ENV")}</em></div><button className={`control-switch ${feature.enabled ? "on" : ""}`} disabled={!feature.configured} aria-pressed={feature.enabled} aria-label={`${t(feature.label)}: ${feature.enabled ? t("enabled") : t("disabled")}`} onClick={() => setAction({ type: "feature", item: feature })}><i /></button></article>)}</div>
+    </section>
+    <section className="control-section node-section">
+      <PanelHeader eyebrow="Remnawave infrastructure" title="VLESS server nodes" action={<button className="quiet-button" onClick={nodes.reload}><RefreshCw size={15} /> {t("Refresh")}</button>} />
+      {!nodes.data ? <ResourceState {...nodes} /> : <div className="node-grid">{nodes.data.map((node) => { const memory = node.memory_total_bytes ? Math.round(((node.memory_used_bytes ?? 0) / node.memory_total_bytes) * 100) : 0; return <article className={`node-card ${node.is_disabled ? "disabled" : node.is_connected ? "online" : "offline"}`} key={node.uuid}><header><span className="node-country">{countryFlag(node.country_code)}</span><div><h3>{node.name}</h3><p>{node.address}</p></div><Status value={node.is_disabled ? "disabled" : node.is_connected ? "online" : node.is_connecting ? "connecting" : "offline"} /></header><div className="node-metrics"><span><Users size={16} /><small>{t("Online")}</small><b>{node.users_online}</b></span><span><Cpu size={16} /><small>Load</small><b>{node.load_average[0]?.toFixed(2) ?? "—"}</b></span><span><HardDrive size={16} /><small>RAM</small><b>{memory}%</b></span><span><Radio size={16} /><small>TX</small><b>{rate(node.tx_bytes_per_second)}</b></span></div><div className="node-progress"><span><i style={{ width: `${Math.min(memory, 100)}%` }} /></span><small>Xray {node.xray_version ?? "—"} · {uptime(node.xray_uptime, locale)}</small></div><footer><span className="mono">{shortId(node.uuid)}</span><button className={node.is_disabled ? "primary-button" : "danger-button"} onClick={() => setAction({ type: "node", item: node })}>{node.is_disabled ? <><CheckCircle2 size={14} /> {t("Enable node")}</> : <><Ban size={14} /> {t("Disable node")}</>}</button></footer></article>; })}</div>}
+    </section>
+    <div className="settings-grid">{groups.map(({ title: heading, icon: Icon, values }) => <section className="panel settings-card" key={heading}><header><span><Icon size={18} /></span><h3>{t(heading)}</h3></header>{values.map(([label, value]) => <div className="setting-row" key={label}><span>{t(label)}</span><b>{label === "Default promo plan" ? t(title(value)) : t(value)}</b></div>)}</section>)}</div>
+    {action && <ControlActionDialog action={action} onClose={() => setAction(null)} onConfirm={completeAction} />}
+  </div>;
+}
+
+function ControlActionDialog({ action, onClose, onConfirm }: { action: { type: "feature"; item: FeatureControl } | { type: "node"; item: RemnawaveNode }; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
+  const { locale, t } = useI18n(); const [reason, setReason] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const disabling = action.type === "feature" ? action.item.enabled : !action.item.is_disabled;
+  const name = action.type === "node" ? action.item.name : action.item.label;
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(null); try { await onConfirm(reason); } catch (value) { setError(value instanceof Error ? value.message : t("Operation failed")); setBusy(false); } };
+  return <div className="modal-layer"><button className="modal-scrim" onClick={onClose} aria-label={t("Close dialog")} /><form className="modal control-action-modal" onSubmit={submit}><div className={`modal-symbol ${disabling ? "block" : ""}`}>{disabling ? <Ban size={20} /> : <CheckCircle2 size={20} />}</div><p className="overline">{action.type === "node" ? "Remnawave node" : t("Service control")}</p><h2>{locale === "ru" ? `${disabling ? "Отключить" : "Включить"} «${name}»?` : `${disabling ? "Disable" : "Enable"} “${name}”?`}</h2><p className="muted">{locale === "ru" ? "Изменение применяется сразу и будет записано в журнал аудита." : "The change takes effect immediately and is written to the audit log."}</p><label className="field-label">{t("Audit reason")}<textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} placeholder={locale === "ru" ? "Почему требуется это изменение" : "Why this change is required"} required /></label>{error && <div className="inline-error">{error}</div>}<footer><button type="button" className="quiet-button" onClick={onClose}>{t("Cancel")}</button><button className={disabling ? "danger-button" : "primary-button"} disabled={busy}>{busy && <LoaderCircle className="spin" size={15} />}{t("Confirm action")}</button></footer></form></div>;
 }
 
 function CollectionPage<T>({ title: heading, note, resource, columns, render }: { title: string; note: string; resource: LoadState<Page<T>> & { reload: () => void }; columns: string[]; render: (item: T) => React.ReactNode }) {
@@ -686,6 +726,9 @@ const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (ch
 const shortId = (value: string) => value ? `${value.slice(0, 8)}…${value.slice(-4)}` : "—";
 const initials = (email: string | null) => email ? email.split("@")[0].split(/[._-]/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") : "U";
 const money = (minor: number, currency: string) => new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: 0 }).format(minor / 100);
+const countryFlag = (code: string) => code.length === 2 ? String.fromCodePoint(...code.toUpperCase().split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐";
+const rate = (bytes: number | null) => bytes == null ? "—" : bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB/s` : `${Math.round(bytes / 1_000)} KB/s`;
+const uptime = (seconds: number, locale: "en" | "ru") => { const days = Math.floor(seconds / 86400); const hours = Math.floor((seconds % 86400) / 3600); return locale === "ru" ? `${days} д ${hours} ч` : `${days}d ${hours}h`; };
 const localizedShortDate = (value: string | null, locale: "en" | "ru") => value ? new Date(value).toLocaleDateString(locale === "ru" ? "ru-RU" : "en", { day: "2-digit", month: "short" }) : "—";
 const localizedLongDate = (value: string | null, locale: "en" | "ru") => value ? new Date(value).toLocaleDateString(locale === "ru" ? "ru-RU" : "en", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const localizedRelativeTime = (value: string, locale: "en" | "ru") => { const minutes = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 60_000)); if (locale === "ru") return minutes < 60 ? `${minutes} мин. назад` : minutes < 1440 ? `${Math.round(minutes / 60)} ч назад` : `${Math.round(minutes / 1440)} дн. назад`; return minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.round(minutes / 60)}h ago` : `${Math.round(minutes / 1440)}d ago`; };

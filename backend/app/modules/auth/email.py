@@ -20,6 +20,12 @@ class EmailSender(Protocol):
 
     async def send_test(self, *, email: str, reference: str) -> None: ...
 
+    async def send_staff_invitation(
+        self, *, email: str, invitation_url: str, roles: list[str], expires_hours: int
+    ) -> None: ...
+
+    async def send_staff_welcome(self, *, email: str, roles: list[str]) -> None: ...
+
 
 class ConsoleEmailSender:
     def __init__(self) -> None:
@@ -40,6 +46,20 @@ class ConsoleEmailSender:
             reference=reference,
         )
 
+    async def send_staff_invitation(
+        self, *, email: str, invitation_url: str, roles: list[str], expires_hours: int
+    ) -> None:
+        self._logger.warning(
+            "development_staff_invitation",
+            email=email,
+            invitation_url=invitation_url,
+            roles=roles,
+            expires_hours=expires_hours,
+        )
+
+    async def send_staff_welcome(self, *, email: str, roles: list[str]) -> None:
+        self._logger.warning("development_staff_welcome", email=email, roles=roles)
+
 
 class SmtpEmailSender:
     def __init__(self, settings: EmailSettings) -> None:
@@ -56,12 +76,12 @@ class SmtpEmailSender:
                 "Если вы не запрашивали код, просто проигнорируйте это письмо."
             ),
             html=(
-                "<p style=\"margin:0 0 18px;color:#aab3c5;font-size:16px\">"
+                '<p style="margin:0 0 18px;color:#aab3c5;font-size:16px">'
                 "Используйте этот код для входа в Hazbit:</p>"
-                f"<div style=\"margin:0 0 18px;font-size:34px;font-weight:800;"
-                f"letter-spacing:8px;color:#f7f9ff\">{escape(code)}</div>"
-                f"<p style=\"margin:0;color:#7f899c;font-size:14px\">Код действует "
-                f"{expires_minutes} минут. Никому его не сообщайте.</p>"  # noqa: RUF001
+                f'<div style="margin:0 0 18px;font-size:34px;font-weight:800;'
+                f'letter-spacing:8px;color:#f7f9ff">{escape(code)}</div>'
+                f'<p style="margin:0;color:#7f899c;font-size:14px">Код действует '
+                f"{expires_minutes} минут. Никому его не сообщайте.</p>"
             ),
         )
 
@@ -73,10 +93,52 @@ class SmtpEmailSender:
             subject="Hazbit — SMTP настроен",
             text=f"Тестовое письмо доставлено. Проверочный номер: {reference}.",
             html=(
-                "<p style=\"margin:0 0 16px;color:#aab3c5;font-size:16px\">"
+                '<p style="margin:0 0 16px;color:#aab3c5;font-size:16px">'
                 "SMTP подключён, и Hazbit может отправлять коды входа.</p>"
-                f"<p style=\"margin:0;color:#f7f9ff\">Проверочный номер: "
+                f'<p style="margin:0;color:#f7f9ff">Проверочный номер: '
                 f"<strong>{escape(reference)}</strong></p>"
+            ),
+        )
+        await self._send(message)
+
+    async def send_staff_invitation(
+        self, *, email: str, invitation_url: str, roles: list[str], expires_hours: int
+    ) -> None:
+        safe_url = escape(invitation_url, quote=True)
+        role_names = ", ".join(roles)
+        message = self._message(
+            email=email,
+            subject="Вас пригласили в команду Hazbit",
+            text=(
+                "Вам предоставлен административный доступ к Hazbit. "
+                f"Роли: {role_names}. Ссылка действует {expires_hours} ч.:\n{invitation_url}\n\n"
+                "Войдите по этой же почте и подтвердите приглашение."
+            ),
+            html=(
+                '<p style="margin:0 0 16px;color:#f7f9ff;font-size:20px;font-weight:750">'
+                "Вы теперь приглашены в команду Hazbit</p>"
+                f'<p style="margin:0 0 22px;color:#aab3c5;line-height:1.6">Роли: '
+                f"<strong>{escape(role_names)}</strong>. Ссылка действует {expires_hours} ч.</p>"
+                f'<a href="{safe_url}" style="display:inline-block;padding:13px 20px;'
+                "border-radius:12px;background:#8b7cff;color:#fff;text-decoration:none;"
+                'font-weight:750">Принять приглашение</a>'
+                '<p style="margin:20px 0 0;color:#7f899c;font-size:13px">'
+                "Для защиты доступа войдите по адресу, на который пришло это письмо.</p>"
+            ),
+        )
+        await self._send(message)
+
+    async def send_staff_welcome(self, *, email: str, roles: list[str]) -> None:
+        role_names = ", ".join(roles)
+        message = self._message(
+            email=email,
+            subject="Административный доступ Hazbit активирован",
+            text=f"Доступ активирован. Ваши роли: {role_names}.",
+            html=(
+                '<p style="margin:0 0 16px;color:#f7f9ff;font-size:20px;font-weight:750">'
+                "Доступ активирован</p>"
+                f'<p style="margin:0;color:#aab3c5;line-height:1.6">Ваши роли: '
+                f"<strong>{escape(role_names)}</strong>. Все действия в Control журналируются.</p>"
             ),
         )
         await self._send(message)
@@ -91,13 +153,13 @@ class SmtpEmailSender:
         message["Subject"] = subject
         message.set_content(text)
         message.add_alternative(
-            "<!doctype html><html><body style=\"margin:0;background:#080b12;"
+            '<!doctype html><html><body style="margin:0;background:#080b12;'
             "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif\">"
-            "<div style=\"max-width:520px;margin:0 auto;padding:40px 20px\">"
-            "<div style=\"padding:30px;border:1px solid #273047;border-radius:24px;"
-            "background:linear-gradient(145deg,#111827,#0b1020)\">"
-            "<div style=\"margin-bottom:24px;color:#8b7cff;font-size:13px;"
-            "font-weight:800;letter-spacing:2px\">HAZBIT ACCESS</div>"
+            '<div style="max-width:520px;margin:0 auto;padding:40px 20px">'
+            '<div style="padding:30px;border:1px solid #273047;border-radius:24px;'
+            'background:linear-gradient(145deg,#111827,#0b1020)">'
+            '<div style="margin-bottom:24px;color:#8b7cff;font-size:13px;'
+            'font-weight:800;letter-spacing:2px">HAZBIT ACCESS</div>'
             f"{html}"
             "</div></div></body></html>",
             subtype="html",

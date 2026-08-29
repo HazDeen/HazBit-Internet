@@ -451,4 +451,20 @@ export const mockSettings: SettingsData = {
   default_promo_plan: "basic",
   support_create_limit_per_day: 10,
   support_message_limit_per_hour: 120,
+  features: [
+    ["vpn_provisioning", "VPN provisioning", "VLESS accounts and devices"],
+    ["billing", "Billing", "Wallet, top-ups and renewals"],
+    ["payment_ai", "Payment AI", "Gemini receipt analysis"],
+    ["referrals", "Referrals", "Codes, claims and rewards"],
+    ["promotions", "Promo codes", "Preview and redemption"],
+    ["families", "Family groups", "Invitations and shared access"],
+    ["support", "Support", "Customer tickets and messages"],
+    ["telegram_bots", "Telegram bots", "Customer and operations webhooks"],
+  ].map(([key, label, description]) => ({ key, label, description, configured: true, runtime_enabled: true, enabled: true })),
 };
+
+export const mockRemnawaveNodes = [
+  { uuid: "0192bc20-1111-7000-9000-000000000101", name: "Frankfurt Core", address: "de-1.hazbit.net", country_code: "DE", is_connected: true, is_disabled: false, is_connecting: false, last_status_change: new Date().toISOString(), last_status_message: null, users_online: 184, traffic_used_bytes: 1_820_000_000_000, traffic_limit_bytes: 5_000_000_000_000, xray_uptime: 864200, cpu_count: 8, memory_total_bytes: 17_179_869_184, memory_used_bytes: 6_442_450_944, load_average: [0.61, 0.54, 0.48], rx_bytes_per_second: 24_800_000, tx_bytes_per_second: 31_200_000, xray_version: "25.8.3", node_version: "2.1.5" },
+  { uuid: "0192bc20-1111-7000-9000-000000000102", name: "Warsaw Edge", address: "pl-1.hazbit.net", country_code: "PL", is_connected: true, is_disabled: false, is_connecting: false, last_status_change: new Date().toISOString(), last_status_message: null, users_online: 92, traffic_used_bytes: 930_000_000_000, traffic_limit_bytes: 3_000_000_000_000, xray_uptime: 453100, cpu_count: 4, memory_total_bytes: 8_589_934_592, memory_used_bytes: 3_221_225_472, load_average: [0.38, 0.31, 0.29], rx_bytes_per_second: 13_400_000, tx_bytes_per_second: 18_900_000, xray_version: "25.8.3", node_version: "2.1.5" },
+  { uuid: "0192bc20-1111-7000-9000-000000000103", name: "Helsinki Reserve", address: "fi-1.hazbit.net", country_code: "FI", is_connected: false, is_disabled: true, is_connecting: false, last_status_change: new Date().toISOString(), last_status_message: "Disabled by operator", users_online: 0, traffic_used_bytes: 120_000_000_000, traffic_limit_bytes: 2_000_000_000_000, xray_uptime: 0, cpu_count: 4, memory_total_bytes: 8_589_934_592, memory_used_bytes: 1_610_612_736, load_average: [0.04, 0.06, 0.05], rx_bytes_per_second: 0, tx_bytes_per_second: 0, xray_version: "25.8.3", node_version: "2.1.5" },
+];

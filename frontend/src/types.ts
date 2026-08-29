@@ -8,7 +8,44 @@ export type Section =
   | "plans"
   | "family-groups"
   | "vpn-devices"
+  | "team"
   | "settings";
+
+export interface AuthUser {
+  id: string;
+  display_name: string | null;
+  email: string | null;
+  telegram_user_id: number | null;
+  roles: string[];
+  permissions: string[];
+}
+
+export interface StaffMember {
+  user_id: string;
+  email: string;
+  public_name: string | null;
+  status: string;
+  roles: string[];
+  permissions: string[];
+  telegram_linked: boolean;
+  created_at: string;
+}
+
+export interface StaffInvitation {
+  id: string;
+  email: string;
+  roles: string[];
+  permissions: string[];
+  expires_at: string;
+  created_at: string;
+}
+
+export interface StaffDirectory {
+  members: StaffMember[];
+  invitations: StaffInvitation[];
+  role_presets: Record<string, string[]>;
+  available_permissions: string[];
+}
 
 export interface TrendPoint {
   date: string;
@@ -206,6 +243,40 @@ export interface SettingsData {
   default_promo_plan: string;
   support_create_limit_per_day: number;
   support_message_limit_per_hour: number;
+  features: FeatureControl[];
+}
+
+export interface FeatureControl {
+  key: string;
+  label: string;
+  description: string;
+  configured: boolean;
+  runtime_enabled: boolean;
+  enabled: boolean;
+}
+
+export interface RemnawaveNode {
+  uuid: string;
+  name: string;
+  address: string;
+  country_code: string;
+  is_connected: boolean;
+  is_disabled: boolean;
+  is_connecting: boolean;
+  last_status_change: string | null;
+  last_status_message: string | null;
+  users_online: number;
+  traffic_used_bytes: number | null;
+  traffic_limit_bytes: number | null;
+  xray_uptime: number;
+  cpu_count: number | null;
+  memory_total_bytes: number | null;
+  memory_used_bytes: number | null;
+  load_average: number[];
+  rx_bytes_per_second: number | null;
+  tx_bytes_per_second: number | null;
+  xray_version: string | null;
+  node_version: string | null;
 }
 
 export interface Page<T> {

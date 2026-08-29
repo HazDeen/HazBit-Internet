@@ -5,8 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
 
-from app.modules.auth.dependencies import PrincipalDependency, require_roles
-from app.modules.auth.enums import Role
+from app.modules.auth.dependencies import PrincipalDependency, require_permissions
+from app.modules.auth.enums import Permission
 from app.modules.auth.service import Principal
 from app.modules.promotions.dependencies import PromotionServiceDependency
 from app.modules.promotions.schemas import (
@@ -23,7 +23,7 @@ from app.modules.promotions.service import PromoClientContext
 
 AdminPrincipal = Annotated[
     Principal,
-    Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+    Depends(require_permissions(Permission.PROMOTIONS_MANAGE)),
 ]
 
 
