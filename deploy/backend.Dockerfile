@@ -21,11 +21,15 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     PM2_HOME=/tmp/pm2
 
-RUN npm install --global pm2@6 && \
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends ca-certificates libpq5 libssl3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install --global pm2@6 && \
     useradd --create-home --uid 10001 --shell /usr/sbin/nologin hazbit
 
 COPY --from=python-build /usr/local /usr/local
 COPY --from=python-build /opt/venv /opt/venv
+RUN python -c "import asyncpg, psycopg"
 
 WORKDIR /app/backend
 COPY --chown=hazbit:hazbit backend ./
