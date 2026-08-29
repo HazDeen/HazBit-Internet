@@ -10,9 +10,13 @@ from app.modules.auth.enums import Permission, Role
 from app.modules.auth.models import (
     AuditLog,
     AuthSession,
+    GoogleAccount,
     OtpChallenge,
+    PasswordCredential,
+    RegistrationChallenge,
     RiskSignal,
     TelegramAccount,
+    TelegramLoginChallenge,
     User,
     UserEmail,
     UserPermission,
@@ -89,6 +93,115 @@ class AuthRepository:
         await self.session.flush()
         return user
 
+    async def create_registered_user(
+        self,
+        *,
+        email: str,
+        public_name: str,
+        password_hash: str,
+        verified_at: datetime,
+    ) -> User:
+        user = User(public_name=public_name)
+        self.session.add(user)
+        await self.session.flush()
+        self.session.add_all(
+            [
+                UserEmail(
+                    user_id=user.id,
+                    email=email,
+                    is_primary=True,
+                    verified_at=verified_at,
+                ),
+                PasswordCredential(user_id=user.id, password_hash=password_hash),
+                UserRole(user_id=user.id, role=Role.USER.value),
+            ]
+        )
+        await self.session.flush()
+        return user
+
+    async def attach_registered_identity(
+        self,
+        *,
+        user: User,
+        email: str,
+        public_name: str,
+        password_hash: str,
+        verified_at: datetime,
+    ) -> None:
+        user.public_name = public_name
+        self.session.add_all(
+            [
+                UserEmail(
+                    user_id=user.id,
+                    email=email,
+                    is_primary=await self.get_primary_email(user.id) is None,
+                    verified_at=verified_at,
+                ),
+                PasswordCredential(user_id=user.id, password_hash=password_hash),
+            ]
+        )
+        await self.session.flush()
+
+    async def attach_password_credential(
+        self,
+        *,
+        user: User,
+        public_name: str,
+        password_hash: str,
+    ) -> None:
+        user.public_name = public_name
+        self.session.add(PasswordCredential(user_id=user.id, password_hash=password_hash))
+        await self.session.flush()
+
+    async def get_password_credential(self, user_id: UUID) -> PasswordCredential | None:
+        result = await self.session.execute(
+            select(PasswordCredential).where(PasswordCredential.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_google_account(self, subject: str) -> GoogleAccount | None:
+        result = await self.session.execute(
+            select(GoogleAccount).where(GoogleAccount.google_subject == subject)
+        )
+        return result.scalar_one_or_none()
+
+    def add_google_account(self, account: GoogleAccount) -> None:
+        self.session.add(account)
+
+    async def invalidate_registration_challenges(
+        self, *, email: str, consumed_at: datetime
+    ) -> None:
+        await self.session.execute(
+            update(RegistrationChallenge)
+            .where(
+                RegistrationChallenge.email == email,
+                RegistrationChallenge.consumed_at.is_(None),
+            )
+            .values(consumed_at=consumed_at)
+        )
+
+    def add_registration_challenge(self, challenge: RegistrationChallenge) -> None:
+        self.session.add(challenge)
+
+    async def get_registration_for_update(self, digest: bytes) -> RegistrationChallenge | None:
+        result = await self.session.execute(
+            select(RegistrationChallenge)
+            .where(RegistrationChallenge.token_hash == digest)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    def add_telegram_login_challenge(self, challenge: TelegramLoginChallenge) -> None:
+        self.session.add(challenge)
+
+    async def get_telegram_login_for_update(self, digest: bytes) -> TelegramLoginChallenge | None:
+        result = await self.session.execute(
+            select(TelegramLoginChallenge)
+            .where(TelegramLoginChallenge.token_hash == digest)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def serialize_telegram_login(self, telegram_user_id: int) -> None:
         await self.session.execute(
             text("SELECT pg_advisory_xact_lock(:lock_id)"),
@@ -142,6 +255,28 @@ class AuthRepository:
         account.language_code = language_code
         account.updated_at = updated_at
         return await self.get_user(account.user_id)
+
+    async def attach_telegram_account(
+        self,
+        *,
+        user_id: UUID,
+        telegram_user_id: int,
+        username: str | None,
+        first_name: str,
+        last_name: str | None,
+        language_code: str | None,
+    ) -> TelegramAccount:
+        account = TelegramAccount(
+            user_id=user_id,
+            telegram_user_id=telegram_user_id,
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            language_code=language_code,
+        )
+        self.session.add(account)
+        await self.session.flush()
+        return account
 
     async def get_user(self, user_id: UUID) -> User:
         result = await self.session.execute(select(User).where(User.id == user_id))

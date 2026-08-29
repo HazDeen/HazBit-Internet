@@ -66,6 +66,66 @@ class TelegramAccount(Base):
     updated_at: Mapped[datetime] = datetime_column(server_now=True)
 
 
+class PasswordCredential(Base):
+    __tablename__ = "password_credentials"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.users.id", ondelete="CASCADE"), primary_key=True
+    )
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_at: Mapped[datetime] = datetime_column(server_now=True)
+    created_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
+class GoogleAccount(Base):
+    __tablename__ = "google_accounts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.users.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    google_subject: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    created_at: Mapped[datetime] = datetime_column(server_now=True)
+    updated_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
+class RegistrationChallenge(Base):
+    __tablename__ = "registration_challenges"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    token_hash: Mapped[bytes] = mapped_column(nullable=False, unique=True)
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    public_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    telegram_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    telegram_username: Mapped[str | None] = mapped_column(CITEXT)
+    telegram_first_name: Mapped[str | None] = mapped_column(String(255))
+    telegram_last_name: Mapped[str | None] = mapped_column(String(255))
+    telegram_language_code: Mapped[str | None] = mapped_column(String(16))
+    requested_ip: Mapped[str | None] = mapped_column(INET)
+    device_fingerprint_hash: Mapped[bytes | None] = mapped_column()
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    telegram_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = datetime_column()
+    created_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
+class TelegramLoginChallenge(Base):
+    __tablename__ = "telegram_login_challenges"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    token_hash: Mapped[bytes] = mapped_column(nullable=False, unique=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    requested_ip: Mapped[str | None] = mapped_column(INET)
+    device_fingerprint_hash: Mapped[bytes | None] = mapped_column()
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = datetime_column()
+    created_at: Mapped[datetime] = datetime_column(server_now=True)
+
+
 class UserRole(Base):
     __tablename__ = "user_roles"
 

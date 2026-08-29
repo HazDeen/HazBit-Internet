@@ -1,71 +1,63 @@
-import { useEffect } from "react";
-import { ArrowRight, Check, Languages, LoaderCircle, LockKeyhole, Mail, X } from "lucide-react";
-import { useI18n } from "../../i18n";
-import { demoMode } from "../../api";
+import { useEffect, useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { ArrowRight, Check, Languages, LoaderCircle, LockKeyhole, Mail, Send, UserPlus, X } from "lucide-react";
+import { completeRegistration, demoMode, loginWithPassword, startEmailLogin, startRegistration, startTelegramIdLogin, verifyEmailLogin, verifyRegistration, verifyTelegramIdLogin } from "../../api";
 import { InlineFeedback } from "../../components/feedback/InlineFeedback";
 import type { ToastTone } from "../../components/feedback/useToastQueue";
-import { useEmailOtpAuth, type AuthFieldError } from "./useEmailOtpAuth";
+import { useI18n } from "../../i18n";
+import { ProviderButtons } from "./ProviderButtons";
 import "./auth-dialog.css";
 
-interface AuthDialogProps {
-  open: boolean;
-  onClose: () => void;
-  onAuthenticated: () => void;
-  notify: (input: { title: string; description?: string; tone?: ToastTone }) => void;
-}
+type Mode = "login" | "register" | "email-otp" | "register-otp" | "telegram-id" | "telegram-wait" | "registration-wait";
+interface AuthDialogProps { open: boolean; onClose: () => void; onAuthenticated: () => void; notify: (input: { title: string; description?: string; tone?: ToastTone }) => void }
 
 export function AuthDialog({ open, onClose, onAuthenticated, notify }: AuthDialogProps) {
   const { locale, setLocale, t } = useI18n();
-  const validationText = (value: AuthFieldError) => ({
-    email_required: t("Enter your email address", "Введите электронную почту"),
-    email_invalid: t("Use an address like name@example.com", "Используйте адрес вида name@example.com"),
-    code_invalid: t("Enter the 6–8 digit code from the email", "Введите код из письма: от 6 до 8 цифр"),
-  })[value];
-  const auth = useEmailOtpAuth({
-    onAuthenticated: () => { notify({ title: t("Welcome to Hazbit", "Добро пожаловать в Hazbit"), description: t("Your secure session is ready", "Защищённая сессия готова"), tone: "success" }); onAuthenticated(); },
-    onCodeSent: (email) => notify({ title: t("Code sent", "Код отправлен"), description: t(`Check ${email}`, `Проверьте почту ${email}`), tone: "info" }),
-    onError: (message) => notify({ title: t("Unable to sign in", "Не удалось войти"), description: message, tone: "error" }),
-    onValidationError: (value) => notify({ title: t("Check the highlighted field", "Проверьте выделенное поле"), description: validationText(value), tone: "warning" }),
-  });
+  const [mode, setMode] = useState<Mode>("login"); const [publicName, setPublicName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [passwordConfirm, setPasswordConfirm] = useState(""); const [telegramId, setTelegramId] = useState(""); const [code, setCode] = useState(""); const [flowToken, setFlowToken] = useState(""); const [confirmationUrl, setConfirmationUrl] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const authenticated = () => { notify({ title: t("Welcome to Hazbit", "Добро пожаловать в Hazbit"), description: t("Your secure session is ready", "Защищённая сессия готова"), tone: "success" }); onAuthenticated(); };
+  const fail = (value: unknown) => { const message = value instanceof Error ? value.message : t("Authentication failed", "Ошибка авторизации"); setError(message); notify({ title: t("Unable to sign in", "Не удалось войти"), description: message, tone: "error" }); };
+  useEffect(() => { if (!open) return; const previous = document.body.style.overflow; document.body.style.overflow = "hidden"; const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", closeOnEscape); return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", closeOnEscape); }; }, [open, onClose]);
+  const switchMode = (next: Mode) => { setMode(next); setError(null); setCode(""); };
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", closeOnEscape); };
-  }, [open, onClose]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setError(null); setBusy(true);
+    try {
+      if (mode === "login") { if (!email.trim() || password.length < 10) throw new Error(t("Enter your email and password", "Введите почту и пароль")); await loginWithPassword(email.trim().toLowerCase(), password); authenticated(); }
+      else if (mode === "register") {
+        if (publicName.trim().length < 2) throw new Error(t("Enter a nickname", "Укажите никнейм"));
+        if (password.length < 10) throw new Error(t("Password must contain at least 10 characters", "Пароль должен содержать не менее 10 символов"));
+        const passwordGroups = [/[a-zа-яё]/u, /[A-ZА-ЯЁ]/u, /\d/u, /[^\p{L}\p{N}]/u].filter((pattern) => pattern.test(password)).length;
+        if (passwordGroups < 3) throw new Error(t("Use at least three groups: lowercase, uppercase, digits and symbols", "Используйте минимум три группы: строчные, заглавные, цифры и символы"));
+        if (password !== passwordConfirm) throw new Error(t("Passwords do not match", "Пароли не совпадают"));
+        const parsedTelegramId = telegramId.trim() ? Number(telegramId) : undefined;
+        if (parsedTelegramId !== undefined && (!Number.isSafeInteger(parsedTelegramId) || parsedTelegramId <= 0)) throw new Error(t("Telegram ID must contain digits only", "Telegram ID должен состоять только из цифр"));
+        const result = await startRegistration({ publicName: publicName.trim(), email: email.trim().toLowerCase(), password, telegramUserId: parsedTelegramId }); setFlowToken(result.registration_token); setConfirmationUrl(result.telegram_confirmation_url ?? ""); switchMode("register-otp"); notify({ title: t("Code sent", "Код отправлен"), description: email.trim(), tone: "info" });
+      } else if (mode === "email-otp") {
+        if (!flowToken) { await startEmailLogin(email.trim().toLowerCase()); setFlowToken("email-code-sent"); notify({ title: t("Code sent", "Код отправлен"), description: email.trim(), tone: "info" }); }
+        else { await verifyEmailLogin(email.trim().toLowerCase(), code.trim()); authenticated(); }
+      } else if (mode === "register-otp") { const result = await verifyRegistration(flowToken, code.trim()); if (result.user) authenticated(); else { setConfirmationUrl(result.pending ?? confirmationUrl); switchMode("registration-wait"); } }
+      else if (mode === "telegram-id") { const numericId = Number(telegramId); if (!Number.isSafeInteger(numericId) || numericId <= 0) throw new Error(t("Enter your numeric Telegram ID", "Введите цифровой Telegram ID")); const result = await startTelegramIdLogin(numericId); setFlowToken(result.challenge_token); setConfirmationUrl(result.confirmation_url); switchMode("telegram-wait"); }
+      else if (mode === "telegram-wait") { const result = await verifyTelegramIdLogin(flowToken); if (result.user) authenticated(); else throw new Error(t("Confirmation has not arrived yet", "Подтверждение ещё не получено")); }
+      else if (mode === "registration-wait") { const result = await completeRegistration(flowToken); if (result.user) authenticated(); else throw new Error(t("Confirmation has not arrived yet", "Подтверждение ещё не получено")); }
+    } catch (value) { fail(value); } finally { setBusy(false); }
+  };
 
   if (!open) return null;
-  return <div className="auth-layer" role="presentation">
-    <button className="auth-layer__scrim" aria-label={t("Close sign in", "Закрыть вход")} onClick={onClose} />
-    <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <div className="auth-dialog__aside">
-        <div className="auth-dialog__mark"><span><i /><i /><i /></span><b>HAZBIT</b></div>
-        <div className="auth-dialog__promise">
-          <p>{t("PRIVATE ACCESS", "ПРИВАТНЫЙ ДОСТУП")}</p>
-          <h2>{t("One email. No password to remember.", "Одна почта. Никаких паролей для запоминания.")}</h2>
-          <ul><li><Check />{t("One-time secure code", "Одноразовый защищённый код")}</li><li><Check />{t("Session and device controls", "Контроль сессий и устройств")}</li><li><Check />{t("Fast access from any screen", "Быстрый вход с любого экрана")}</li></ul>
-        </div>
-        <div className="auth-dialog__route"><i /><span>VLESS</span><i /><span>HAZBIT</span><i /></div>
-      </div>
-      <form className="auth-dialog__form" onSubmit={auth.submit} noValidate>
-        <div className="auth-dialog__controls">
-          <button type="button" className="auth-dialog__language" onClick={() => setLocale(locale === "ru" ? "en" : "ru")}><Languages size={14} />{locale.toUpperCase()}</button>
-          <button type="button" className="auth-dialog__close" onClick={onClose} aria-label={t("Close", "Закрыть")}><X size={19} /></button>
-        </div>
-        <span className="auth-dialog__symbol">{auth.step === "email" ? <Mail /> : <LockKeyhole />}</span>
-        <p className="auth-dialog__eyebrow">{auth.step === "email" ? t("SIGN IN OR CREATE ACCOUNT", "ВХОД ИЛИ СОЗДАНИЕ АККАУНТА") : t("EMAIL CONFIRMATION", "ПОДТВЕРЖДЕНИЕ ПОЧТЫ")}</p>
-        <h1 id="auth-title">{auth.step === "email" ? t("Connect to Hazbit", "Подключиться к Hazbit") : t("Enter the code", "Введите код")}</h1>
-        <p>{auth.step === "email" ? t("We will send a one-time code. If this email is new, the account will be created automatically.", "Отправим одноразовый код. Если почта новая — аккаунт создастся автоматически.") : t(`We sent a code to ${auth.email}.`, `Код отправлен на ${auth.email}.`)}</p>
-        {demoMode && <div className="auth-dialog__demo"><span>DEMO</span>{auth.step === "email" ? t("Use any email to preview the flow", "Введите любую почту для просмотра") : t("Use code 000000", "Используйте код 000000")}</div>}
-        {auth.step === "email" ? <label>{t("Email", "Электронная почта")}<input type="email" value={auth.email} onChange={(event) => auth.setEmail(event.target.value)} placeholder="you@example.com" aria-invalid={Boolean(auth.fieldError)} aria-describedby={auth.fieldError ? "auth-field-error" : undefined} autoFocus />{auth.fieldError && <span className="field-error" id="auth-field-error">{validationText(auth.fieldError)}</span>}</label> : <label>{t("One-time code", "Одноразовый код")}<input className="auth-dialog__otp" inputMode="numeric" autoComplete="one-time-code" value={auth.code} onChange={(event) => auth.setCode(event.target.value)} placeholder="000000" aria-invalid={Boolean(auth.fieldError)} aria-describedby={auth.fieldError ? "auth-field-error" : undefined} autoFocus />{auth.fieldError && <span className="field-error" id="auth-field-error">{validationText(auth.fieldError)}</span>}</label>}
-        {auth.error && <InlineFeedback tone="error" title={t("Authentication failed", "Ошибка авторизации")} description={auth.error} />}
-        <button className="auth-dialog__submit" disabled={auth.busy}>{auth.busy ? <LoaderCircle className="spin" /> : <ArrowRight />}<span>{auth.step === "email" ? t("Send secure code", "Отправить защищённый код") : t("Open personal account", "Открыть личный кабинет")}</span></button>
-        {auth.step === "code" && <button className="auth-dialog__back" type="button" onClick={auth.resetEmail}>{t("Use another email", "Указать другую почту")}</button>}
-        <small><LockKeyhole size={13} />{t("Protected by rotating sessions and rate limiting", "Защищено ротацией сессий и rate limiting")}</small>
-      </form>
-    </section>
-  </div>;
+  const waiting = mode === "telegram-wait" || mode === "registration-wait"; const otp = mode === "email-otp" || mode === "register-otp";
+  return <div className="auth-layer" role="presentation"><button className="auth-layer__scrim" aria-label={t("Close sign in", "Закрыть вход")} onClick={onClose} /><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <div className="auth-dialog__aside"><div className="auth-dialog__mark"><span><i /><i /><i /></span><b>HAZBIT</b></div><div className="auth-dialog__promise"><p>{t("ONE SECURE IDENTITY", "ЕДИНЫЙ ЗАЩИЩЁННЫЙ АККАУНТ")}</p><h2>{t("Your access follows you across every device.", "Ваш доступ всегда рядом — на любом устройстве.")}</h2><ul><li><Check />{t("Password, Google or Telegram", "Пароль, Google или Telegram")}</li><li><Check />{t("Verified email and rotating sessions", "Подтверждённая почта и ротация сессий")}</li><li><Check />{t("Existing Telegram devices stay linked", "Устройства Telegram сохраняются")}</li></ul></div><div className="auth-dialog__route"><i /><span>VLESS</span><i /><span>HAZBIT</span><i /></div></div>
+    <form className={`auth-dialog__form ${mode === "register" ? "auth-dialog__form--register" : ""}`} onSubmit={submit} noValidate><div className="auth-dialog__controls"><button type="button" onClick={() => setLocale(locale === "ru" ? "en" : "ru")}><Languages size={14} />{locale.toUpperCase()}</button><button type="button" onClick={onClose} aria-label={t("Close", "Закрыть")}><X size={19} /></button></div>
+      {!otp && !waiting && mode !== "telegram-id" && <div className="auth-mode-tabs"><button type="button" className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>{t("Sign in", "Войти")}</button><button type="button" className={mode === "register" ? "active" : ""} onClick={() => switchMode("register")}>{t("Create account", "Регистрация")}</button></div>}
+      <span className="auth-dialog__symbol">{mode === "register" ? <UserPlus /> : mode.startsWith("telegram") || mode === "registration-wait" ? <Send /> : otp ? <Mail /> : <LockKeyhole />}</span><p className="auth-dialog__eyebrow">{mode === "register" ? t("NEW HAZBIT ACCOUNT", "НОВЫЙ АККАУНТ HAZBIT") : otp ? t("EMAIL CONFIRMATION", "ПОДТВЕРЖДЕНИЕ ПОЧТЫ") : waiting ? t("SECURE TELEGRAM CONFIRMATION", "БЕЗОПАСНОЕ ПОДТВЕРЖДЕНИЕ TELEGRAM") : t("SECURE SIGN IN", "ЗАЩИЩЁННЫЙ ВХОД")}</p>
+      <h1 id="auth-title">{mode === "register" ? t("Create your space", "Создайте свой аккаунт") : otp ? t("Enter the code", "Введите код") : waiting ? t("Confirm in Telegram", "Подтвердите в Telegram") : mode === "telegram-id" ? t("Telegram ID", "Вход по Telegram ID") : t("Welcome back", "С возвращением")}</h1><p>{waiting ? t("Open the bot, approve this request, then return and press Continue.", "Откройте бота, подтвердите запрос, затем вернитесь и нажмите «Продолжить».") : otp ? t(`We sent a one-time code to ${email}.`, `Одноразовый код отправлен на ${email}.`) : mode === "register" ? t("Email confirmation protects the account. Telegram ID is optional and requires confirmation in the bot.", "Почта подтверждается кодом. Telegram ID необязателен и подтверждается через бота.") : mode === "telegram-id" ? t("The ID alone is not a password. You will confirm the request in the official bot.", "Сам ID не является паролем: запрос нужно подтвердить в официальном боте.") : t("Use your permanent password or a trusted identity provider.", "Используйте постоянный пароль или доверенный способ входа.")}</p>
+      {demoMode && <div className="auth-dialog__demo"><span>DEMO</span>{t("OTP code: 000000", "OTP-код: 000000")}</div>}
+      {mode === "login" && <><ProviderButtons onAuthenticated={authenticated} onError={fail} onTelegramId={() => switchMode("telegram-id")} /><div className="auth-divider"><span>{t("or email", "или почта")}</span></div><AuthInput label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" /><AuthInput label={t("Password", "Пароль")} type="password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="••••••••••" /></>}
+      {mode === "register" && <div className="auth-fields-grid"><AuthInput label={t("Nickname", "Никнейм")} value={publicName} onChange={setPublicName} autoComplete="nickname" placeholder={t("How should we call you?", "Как к вам обращаться?")} /><AuthInput label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" /><AuthInput label={t("Password", "Пароль")} type="password" value={password} onChange={setPassword} autoComplete="new-password" placeholder={t("10+ characters", "От 10 символов")} /><AuthInput label={t("Repeat password", "Повторите пароль")} type="password" value={passwordConfirm} onChange={setPasswordConfirm} autoComplete="new-password" placeholder="••••••••••" /><AuthInput label={t("Telegram ID (optional)", "Telegram ID (необязательно)")} value={telegramId} onChange={(value) => setTelegramId(value.replace(/\D/g, ""))} inputMode="numeric" placeholder="123456789" /></div>}
+      {mode === "email-otp" && !flowToken && <AuthInput label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" />}{otp && (mode === "register-otp" || flowToken) && <AuthInput className="auth-dialog__otp" label={t("One-time code", "Одноразовый код")} value={code} onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" />}{mode === "telegram-id" && <AuthInput label="Telegram ID" value={telegramId} onChange={(value) => setTelegramId(value.replace(/\D/g, ""))} inputMode="numeric" placeholder="123456789" />}
+      {waiting && <a className="telegram-confirm-button" href={confirmationUrl} target="_blank" rel="noreferrer"><Send size={17} />{t("Open official Hazbit bot", "Открыть официального бота Hazbit")}</a>}{error && <InlineFeedback tone="error" title={t("Authentication failed", "Ошибка авторизации")} description={error} />}
+      <button className="auth-dialog__submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <ArrowRight />}<span>{mode === "register" ? t("Send confirmation code", "Отправить код подтверждения") : mode === "email-otp" && !flowToken ? t("Send one-time code", "Отправить одноразовый код") : waiting ? t("Continue after confirmation", "Продолжить после подтверждения") : mode === "telegram-id" ? t("Continue in Telegram", "Продолжить в Telegram") : otp ? t("Confirm and continue", "Подтвердить и продолжить") : t("Sign in securely", "Войти безопасно")}</span></button>
+      {mode === "login" && <button className="auth-dialog__back" type="button" onClick={() => { setFlowToken(""); switchMode("email-otp"); }}>{t("Sign in with a one-time email code", "Войти по одноразовому коду из письма")}</button>}{(otp || waiting || mode === "telegram-id") && <button className="auth-dialog__back" type="button" onClick={() => { setFlowToken(""); switchMode("login"); }}>{t("Back to sign in", "Вернуться ко входу")}</button>}
+      {mode === "register" && <small className="auth-legal-consent">{t("By continuing, you accept", "Продолжая, вы принимаете")} <a href="#terms" onClick={onClose}>{t("the User Agreement", "Пользовательское соглашение")}</a> {t("and", "и")} <a href="#privacy" onClick={onClose}>{t("Privacy Policy", "Политику конфиденциальности")}</a>.</small>}<small><LockKeyhole size={13} />{t("Argon2 password hashing, rate limits and rotating sessions", "Argon2, rate limiting и ротация сессий")}</small>
+    </form></section></div>;
 }
+
+function AuthInput({ label, value, onChange, className, ...props }: { label: string; value: string; onChange: (value: string) => void; className?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) { return <label>{label}<input {...props} className={className} value={value} onChange={(event) => onChange(event.target.value)} /></label>; }

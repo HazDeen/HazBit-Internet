@@ -93,3 +93,56 @@ class TelegramInitDataValidator:
             query_id=fields.get("query_id"),
             start_param=fields.get("start_param"),
         )
+
+
+class TelegramWidgetValidator:
+    def __init__(self, settings: TelegramSettings) -> None:
+        self._bot_token = settings.bot_token.get_secret_value()
+        self._max_age_seconds = settings.init_data_max_age_seconds
+
+    def validate(
+        self,
+        fields: dict[str, str | int | None],
+        *,
+        now: datetime | None = None,
+    ) -> ValidatedTelegramData:
+        if not self._bot_token:
+            raise TelegramValidationError("Telegram authentication is not configured")
+        received_hash = fields.get("hash")
+        if not isinstance(received_hash, str) or len(received_hash) != 64:
+            raise TelegramValidationError("Missing Telegram widget hash")
+        signed = {
+            key: str(value)
+            for key, value in fields.items()
+            if key != "hash" and value is not None and value != ""
+        }
+        data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(signed.items()))
+        secret_key = hashlib.sha256(self._bot_token.encode()).digest()
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(calculated_hash, received_hash.lower()):
+            raise TelegramValidationError("Invalid Telegram widget signature")
+        current_time = now or datetime.now(UTC)
+        try:
+            auth_date = datetime.fromtimestamp(int(signed["auth_date"]), tz=UTC)
+            user = TelegramUserData(
+                id=int(signed["id"]),
+                first_name=signed["first_name"],
+                last_name=signed.get("last_name"),
+                username=signed.get("username"),
+                language_code=signed.get("language_code"),
+            )
+        except (KeyError, TypeError, ValueError, OverflowError, ValidationError) as exc:
+            raise TelegramValidationError("Invalid Telegram widget data") from exc
+        age_seconds = (current_time - auth_date).total_seconds()
+        if age_seconds < -30 or age_seconds > self._max_age_seconds:
+            raise TelegramValidationError("Telegram widget data is expired")
+        return ValidatedTelegramData(
+            user=user,
+            auth_date=auth_date,
+            query_id=None,
+            start_param=None,
+        )

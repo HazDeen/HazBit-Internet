@@ -1,5 +1,5 @@
 import { mockDevices, mockFamily, mockOverview, mockPayments, mockPlans, mockReferral, mockTicketDetails, mockTickets, mockWallet } from "./mock";
-import type { AuthResponse, Device, FamilyGroup, Payment, PromoPreview, TicketDetail, TicketMessage, Wallet } from "./types";
+import type { AuthResponse, Device, FamilyGroup, Payment, PromoPreview, RegistrationStartResponse, TelegramIdStartResponse, TelegramPendingResponse, TicketDetail, TicketMessage, Wallet } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 export const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
@@ -21,6 +21,12 @@ export function deviceFingerprint() {
   let value = localStorage.getItem(fingerprintKey);
   if (!value) { value = `web-${crypto.randomUUID()}`; localStorage.setItem(fingerprintKey, value); }
   return value;
+}
+
+function storeAuth(response: AuthResponse) {
+  accessToken = response.access_token;
+  sessionStorage.setItem("hazbit_customer_access_token", response.access_token);
+  return response.user;
 }
 
 function csrfToken(): string | null {
@@ -95,6 +101,12 @@ function demoRequest<T>(path: string, init: RequestInit): T {
     return structuredClone(demoDb.wallet) as T;
   }
   if (route === "/auth/email/start" && method === "POST") return { message: "Demo code sent" } as T;
+  if (route === "/auth/password" && method === "POST") return { access_token: "customer-demo-token", token_type: "bearer", expires_in: 900, user: { id: demoDb.overview.user.id, display_name: demoDb.overview.user.public_name, email: String(body.email), telegram_user_id: demoDb.overview.user.telegram_user_id, roles: ["USER"] } } as T;
+  if (route === "/auth/register/start" && method === "POST") return { message: "Demo code sent", registration_token: "demo-registration-token-000000", telegram_confirmation_url: body.telegram_user_id ? "https://t.me/example_bot?start=reg_demo" : null } as T;
+  if ((route === "/auth/register/verify" || route === "/auth/register/complete") && method === "POST") {
+    if (route.endsWith("verify") && String(body.code) !== "000000") throw new Error("Для демо используйте код 000000");
+    return { access_token: "customer-demo-token", token_type: "bearer", expires_in: 900, user: { id: demoDb.overview.user.id, display_name: demoDb.overview.user.public_name, email: "demo@hazdeen.xyz", telegram_user_id: demoDb.overview.user.telegram_user_id, roles: ["USER"] } } as T;
+  }
   if (route === "/auth/email/verify" && method === "POST") {
     if (String(body.code) !== "000000") throw new Error("Для демо используйте код 000000");
     return {
@@ -202,7 +214,46 @@ export async function startEmailLogin(email: string) {
 
 export async function verifyEmailLogin(email: string, code: string) {
   const response = await api<AuthResponse>("/auth/email/verify", { method: "POST", body: JSON.stringify({ email, code, device_fingerprint: deviceFingerprint() }) });
-  accessToken = response.access_token; sessionStorage.setItem("hazbit_customer_access_token", response.access_token); return response.user;
+  return storeAuth(response);
+}
+
+export async function loginWithPassword(email: string, password: string) {
+  return storeAuth(await api<AuthResponse>("/auth/password", { method: "POST", body: JSON.stringify({ email, password, device_fingerprint: deviceFingerprint() }) }));
+}
+
+export async function startRegistration(input: { publicName: string; email: string; password: string; telegramUserId?: number }) {
+  return api<RegistrationStartResponse>("/auth/register/start", { method: "POST", body: JSON.stringify({ public_name: input.publicName, email: input.email, password: input.password, telegram_user_id: input.telegramUserId, device_fingerprint: deviceFingerprint() }) });
+}
+
+export async function verifyRegistration(registrationToken: string, code: string) {
+  const response = await api<AuthResponse | TelegramPendingResponse>("/auth/register/verify", { method: "POST", body: JSON.stringify({ registration_token: registrationToken, code, device_fingerprint: deviceFingerprint() }) });
+  if ("access_token" in response) return { user: storeAuth(response), pending: null };
+  return { user: null, pending: response.telegram_confirmation_url };
+}
+
+export async function completeRegistration(registrationToken: string) {
+  const response = await api<AuthResponse | TelegramPendingResponse>("/auth/register/complete", { method: "POST", body: JSON.stringify({ registration_token: registrationToken, device_fingerprint: deviceFingerprint() }) });
+  if ("access_token" in response) return { user: storeAuth(response), pending: null };
+  return { user: null, pending: response.telegram_confirmation_url };
+}
+
+export async function loginWithGoogle(credential: string) {
+  return storeAuth(await api<AuthResponse>("/auth/google", { method: "POST", body: JSON.stringify({ credential, device_fingerprint: deviceFingerprint() }) }));
+}
+
+export interface TelegramWidgetUser { id: number; first_name: string; last_name?: string; username?: string; photo_url?: string; auth_date: number; hash: string }
+export async function loginWithTelegramWidget(user: TelegramWidgetUser) {
+  return storeAuth(await api<AuthResponse>("/auth/telegram/widget", { method: "POST", body: JSON.stringify({ ...user, device_fingerprint: deviceFingerprint() }) }));
+}
+
+export async function startTelegramIdLogin(telegramUserId: number) {
+  return api<TelegramIdStartResponse>("/auth/telegram-id/start", { method: "POST", body: JSON.stringify({ telegram_user_id: telegramUserId, device_fingerprint: deviceFingerprint() }) });
+}
+
+export async function verifyTelegramIdLogin(challengeToken: string) {
+  const response = await api<AuthResponse | TelegramPendingResponse>("/auth/telegram-id/verify", { method: "POST", body: JSON.stringify({ challenge_token: challengeToken, device_fingerprint: deviceFingerprint() }) });
+  if ("access_token" in response) return { user: storeAuth(response), pending: false };
+  return { user: null, pending: true };
 }
 
 export async function logout() {

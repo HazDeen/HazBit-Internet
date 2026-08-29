@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import ApplicationError
+from app.modules.auth.crypto import OpaqueTokenCodec
 from app.modules.auth.enums import Permission, Role, UserStatus
+from app.modules.auth.models import RegistrationChallenge, TelegramAccount, TelegramLoginChallenge
 from app.modules.auth.rate_limit import RateLimit, RateLimiter
 from app.modules.bots.callbacks import CallbackCodec
 from app.modules.bots.repository import BotIdentity, BotRepository
@@ -62,6 +64,7 @@ class TelegramBotService:
         self._callbacks = callbacks
         self._payments = payment_service
         self._repository = BotRepository(session)
+        self._auth_tokens = OpaqueTokenCodec(settings.auth)
 
     async def customer_update(self, update: TelegramUpdate) -> None:
         actor_id = update.actor_id
@@ -156,6 +159,10 @@ class TelegramBotService:
         actor = message.from_user
         if actor is None:
             return
+        start_parameter = (message.text or "").split(maxsplit=1)
+        if len(start_parameter) == 2 and start_parameter[1].startswith(("reg_", "login_")):
+            await self._approve_auth_challenge(message, start_parameter[1])
+            return
         required_channel = self._settings.telegram_bots.required_channel_id
         if required_channel:
             status = await self._customer.get_chat_member(required_channel, actor.id)
@@ -195,6 +202,64 @@ class TelegramBotService:
                 f"С возвращением, <b>{name}</b>. Аккаунт подключён — всё управление доступно ниже."
             )
         await self._customer.send_message(message.chat.id, text, reply_markup=self._customer_menu())
+
+    async def _approve_auth_challenge(self, message: TelegramMessage, start_parameter: str) -> None:
+        actor = message.from_user
+        if actor is None:
+            return
+        action, raw_token = start_parameter.split("_", 1)
+        digest = self._auth_tokens.digest(raw_token)
+        now = datetime.now(UTC)
+        approved = False
+        async with self._session.begin():
+            if action == "reg":
+                challenge = await self._session.scalar(
+                    select(RegistrationChallenge)
+                    .where(RegistrationChallenge.token_hash == digest)
+                    .with_for_update()
+                )
+                if (
+                    challenge is not None
+                    and challenge.consumed_at is None
+                    and challenge.expires_at > now
+                    and challenge.telegram_user_id == actor.id
+                ):
+                    challenge.telegram_verified_at = now
+                    challenge.telegram_username = actor.username
+                    challenge.telegram_first_name = actor.first_name
+                    challenge.telegram_last_name = actor.last_name
+                    challenge.telegram_language_code = actor.language_code
+                    approved = True
+            elif action == "login":
+                challenge = await self._session.scalar(
+                    select(TelegramLoginChallenge)
+                    .where(TelegramLoginChallenge.token_hash == digest)
+                    .with_for_update()
+                )
+                linked_account = await self._session.scalar(
+                    select(TelegramAccount.id).where(TelegramAccount.telegram_user_id == actor.id)
+                )
+                if (
+                    challenge is not None
+                    and linked_account is not None
+                    and challenge.consumed_at is None
+                    and challenge.expires_at > now
+                    and challenge.telegram_user_id == actor.id
+                ):
+                    challenge.approved_at = now
+                    approved = True
+        if approved:
+            await self._customer.send_message(
+                message.chat.id,
+                "<b>Подтверждение принято.</b>\n\nВернитесь в браузер и продолжите вход.",
+                reply_markup=self._customer_menu(),
+            )
+            return
+        await self._customer.send_message(
+            message.chat.id,
+            "Ссылка подтверждения недействительна, истекла или относится к другому аккаунту.",
+            reply_markup=self._customer_menu(),
+        )
 
     async def _customer_status(self, chat_id: int, telegram_user_id: int) -> None:
         identity = await self._require_customer_identity(telegram_user_id)

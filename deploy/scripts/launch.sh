@@ -29,25 +29,28 @@ compose() {
         "$@"
 }
 
-echo "[1/6] Validating Docker Compose configuration"
+echo "[1/7] Validating Docker Compose configuration"
 compose config --quiet
 
-echo "[2/6] Building production images"
+echo "[2/7] Building production images"
 compose build platform remnawave-adapter caddy
 
-echo "[3/6] Validating production application settings"
+echo "[3/7] Validating production application settings"
 compose run --rm --no-deps --entrypoint python platform \
     -c "from app.core.config import Settings; Settings(); print('Production settings are valid')"
 compose run --rm --no-deps --entrypoint python remnawave-adapter \
     -c "from remnawave_adapter.config import Settings; Settings(); print('Adapter settings are valid')"
 
-echo "[4/6] Starting the production stack"
+echo "[4/7] Starting the production stack"
 compose up -d
 
-echo "[5/6] Verifying launch readiness"
+echo "[5/7] Verifying launch readiness"
 compose exec -T platform python -m app.operations.cli preflight
 
-echo "[6/6] Sending SMTP delivery test to the first super admin"
+echo "[6/7] Verifying Telegram bot identities and webhooks"
+compose exec -T platform python -m app.workers.check_telegram_bots
+
+echo "[7/7] Sending SMTP delivery test to the first super admin"
 compose exec -T platform python -m app.operations.cli test-email
 compose ps
 

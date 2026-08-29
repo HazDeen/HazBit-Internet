@@ -63,7 +63,20 @@ async def run() -> None:
                 ]
             },
         )
-        logger.info("telegram_bots_configured", webhook_base_url=base)
+        customer_identity = await runtime.customer.call("getMe", {})
+        customer_webhook = await runtime.customer.call("getWebhookInfo", {})
+        operations_identity = await runtime.operations.call("getMe", {})
+        operations_webhook = await runtime.operations.call("getWebhookInfo", {})
+        logger.info(
+            "telegram_bots_configured",
+            webhook_base_url=base,
+            customer_bot=customer_identity.get("username"),
+            customer_webhook=customer_webhook.get("url"),
+            customer_webhook_error=customer_webhook.get("last_error_message"),
+            operations_bot=operations_identity.get("username"),
+            operations_webhook=operations_webhook.get("url"),
+            operations_webhook_error=operations_webhook.get("last_error_message"),
+        )
     finally:
         await runtime.close()
 

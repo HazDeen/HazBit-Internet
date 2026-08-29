@@ -78,7 +78,10 @@ def test_production_accepts_complete_auth_configuration() -> None:
             "otp": {"secret": "o" * 32},
             "refresh_token_secret": "r" * 32,
             "fingerprint_secret": "f" * 32,
-            "telegram": {"bot_token": "123456:production-token"},
+            "telegram": {
+                "bot_token": "123456:production-token",
+                "bot_username": "hazbit_bot",
+            },
                 "email": {
                     "backend": "smtp",
                     "from_address": "auth@hazbit.app",
@@ -189,7 +192,10 @@ def test_production_allows_explicit_private_remnawave_adapter() -> None:
             "otp": {"secret": "o" * 32},
             "refresh_token_secret": "r" * 32,
             "fingerprint_secret": "f" * 32,
-            "telegram": {"bot_token": "123456:production-token"},
+            "telegram": {
+                "bot_token": "123456:production-token",
+                "bot_username": "hazbit_bot",
+            },
                 "email": {
                     "backend": "smtp",
                     "from_address": "auth@hazbit.app",
@@ -249,7 +255,10 @@ def test_production_rejects_public_insecure_remnawave_adapter() -> None:
                 "otp": {"secret": "o" * 32},
                 "refresh_token_secret": "r" * 32,
                 "fingerprint_secret": "f" * 32,
-                "telegram": {"bot_token": "123456:production-token"},
+                "telegram": {
+                    "bot_token": "123456:production-token",
+                    "bot_username": "hazbit_bot",
+                },
                 "email": {
                     "backend": "smtp",
                     "smtp_host": "smtp.hazbit.app",

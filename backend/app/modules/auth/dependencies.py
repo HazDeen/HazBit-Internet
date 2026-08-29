@@ -27,6 +27,9 @@ def get_auth_service(request: Request, session: SessionDependency) -> AuthServic
         access_token_codec=runtime.access_token_codec,
         signal_hasher=runtime.signal_hasher,
         telegram_validator=runtime.telegram_validator,
+        telegram_widget_validator=runtime.telegram_widget_validator,
+        google_validator=runtime.google_validator,
+        password_codec=runtime.password_codec,
         rate_limiter=runtime.rate_limiter,
         email_sender=runtime.email_sender,
     )

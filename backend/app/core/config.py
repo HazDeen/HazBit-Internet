@@ -82,7 +82,31 @@ class TelegramSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bot_token: SecretStr = SecretStr("")
+    bot_username: str | None = None
     init_data_max_age_seconds: int = Field(default=300, ge=30, le=3600)
+
+    @field_validator("bot_username", mode="before")
+    @classmethod
+    def normalize_bot_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().removeprefix("@")
+        return normalized or None
+
+
+class GoogleAuthSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    client_id: str | None = None
+
+    @field_validator("client_id", mode="before")
+    @classmethod
+    def normalize_client_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class TelegramBotsSettings(BaseModel):
@@ -169,6 +193,7 @@ class AuthSettings(BaseModel):
     jwt: JwtSettings = Field(default_factory=JwtSettings)
     otp: OtpSettings = Field(default_factory=OtpSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    google: GoogleAuthSettings = Field(default_factory=GoogleAuthSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
     cookies: CookieSettings = Field(default_factory=CookieSettings)
     refresh_token_secret: SecretStr = SecretStr("local-only-refresh-secret-change-me-0123456789")
@@ -472,6 +497,12 @@ class Settings(BaseSettings):
                 raise ValueError(f"{label} secret must be replaced for production")
         if self.features.telegram_bots and not self.auth.telegram.bot_token.get_secret_value():
             raise ValueError("Telegram bot token is required in production")
+        if self.features.telegram_bots and not self.auth.telegram.bot_username:
+            raise ValueError("Telegram bot username is required in production")
+        if self.auth.google.enabled and not self.auth.google.client_id:
+            raise ValueError(
+                "Google OAuth client ID is required when Google authentication is enabled"
+            )
         if self.auth.email.backend != "smtp" or not self.auth.email.smtp_host:
             raise ValueError("SMTP email backend is required in production")
         if self.auth.email.invitation_url.scheme != "https":

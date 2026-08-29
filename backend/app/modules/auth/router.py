@@ -11,8 +11,19 @@ from app.modules.auth.schemas import (
     AuthenticatedUser,
     EmailStartRequest,
     EmailVerifyRequest,
+    GoogleAuthRequest,
     MessageResponse,
+    PasswordLoginRequest,
+    RegistrationCompleteRequest,
+    RegistrationStartRequest,
+    RegistrationStartResponse,
+    RegistrationVerifyRequest,
     TelegramAuthRequest,
+    TelegramIdStartRequest,
+    TelegramIdStartResponse,
+    TelegramIdVerifyRequest,
+    TelegramPendingResponse,
+    TelegramWidgetAuthRequest,
     TokenResponse,
 )
 from app.modules.auth.service import AuthResult, AuthService, ClientContext
@@ -65,6 +76,151 @@ def create_auth_router(settings: Settings) -> APIRouter:
             init_data=payload.init_data,
             client=_client_context(request, payload.device_fingerprint),
         )
+        _set_session_cookies(response, result, settings)
+        return _token_response(result)
+
+    @router.post(
+        "/register/start",
+        response_model=RegistrationStartResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def start_registration(
+        payload: RegistrationStartRequest,
+        request: Request,
+        service: AuthServiceDependency,
+    ) -> RegistrationStartResponse:
+        result = await service.start_registration(
+            public_name=payload.public_name,
+            email=str(payload.email),
+            password=payload.password,
+            telegram_user_id=payload.telegram_user_id,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        return RegistrationStartResponse(
+            message="A verification code has been sent to the email address.",
+            registration_token=result.token,
+            telegram_confirmation_url=result.telegram_confirmation_url,
+        )
+
+    @router.post(
+        "/register/verify",
+        response_model=TokenResponse | TelegramPendingResponse,
+    )
+    async def verify_registration(
+        payload: RegistrationVerifyRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse | TelegramPendingResponse:
+        result = await service.verify_registration(
+            registration_token=payload.registration_token,
+            code=payload.code,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        return _registration_response(result, response=response, settings=settings)
+
+    @router.post(
+        "/register/complete",
+        response_model=TokenResponse | TelegramPendingResponse,
+    )
+    async def complete_registration(
+        payload: RegistrationCompleteRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse | TelegramPendingResponse:
+        result = await service.complete_registration(
+            registration_token=payload.registration_token,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        return _registration_response(result, response=response, settings=settings)
+
+    @router.post("/password", response_model=TokenResponse)
+    async def authenticate_password(
+        payload: PasswordLoginRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse:
+        result = await service.authenticate_password(
+            email=str(payload.email),
+            password=payload.password,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        _set_session_cookies(response, result, settings)
+        return _token_response(result)
+
+    @router.post("/google", response_model=TokenResponse)
+    async def authenticate_google(
+        payload: GoogleAuthRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse:
+        result = await service.authenticate_google(
+            credential=payload.credential,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        _set_session_cookies(response, result, settings)
+        return _token_response(result)
+
+    @router.post("/telegram/widget", response_model=TokenResponse)
+    async def authenticate_telegram_widget(
+        payload: TelegramWidgetAuthRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse:
+        result = await service.authenticate_telegram_widget(
+            fields=payload.model_dump(exclude={"device_fingerprint"}),
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        _set_session_cookies(response, result, settings)
+        return _token_response(result)
+
+    @router.post("/telegram-id/start", response_model=TelegramIdStartResponse)
+    async def start_telegram_id_login(
+        payload: TelegramIdStartRequest,
+        request: Request,
+        service: AuthServiceDependency,
+    ) -> TelegramIdStartResponse:
+        result = await service.start_telegram_id_login(
+            telegram_user_id=payload.telegram_user_id,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        return TelegramIdStartResponse(
+            challenge_token=result.token,
+            confirmation_url=result.confirmation_url,
+            expires_in=result.expires_in,
+        )
+
+    @router.post(
+        "/telegram-id/verify",
+        response_model=TokenResponse | TelegramPendingResponse,
+    )
+    async def verify_telegram_id_login(
+        payload: TelegramIdVerifyRequest,
+        request: Request,
+        response: Response,
+        service: AuthServiceDependency,
+    ) -> TokenResponse | TelegramPendingResponse:
+        result = await service.verify_telegram_id_login(
+            challenge_token=payload.challenge_token,
+            client=_client_context(request, payload.device_fingerprint),
+        )
+        if result is None:
+            username = settings.auth.telegram.bot_username
+            if not username:
+                raise ApplicationError(
+                    "telegram_login_unavailable",
+                    "Telegram confirmation is not configured yet.",
+                    503,
+                )
+            return TelegramPendingResponse(
+                telegram_confirmation_url=(
+                    f"https://t.me/{username}?start=login_{payload.challenge_token}"
+                )
+            )
         _set_session_cookies(response, result, settings)
         return _token_response(result)
 
@@ -151,6 +307,18 @@ def _token_response(result: AuthResult) -> TokenResponse:
         expires_in=result.access_expires_in,
         user=result.user,
     )
+
+
+def _registration_response(
+    result: AuthResult | str,
+    *,
+    response: Response,
+    settings: Settings,
+) -> TokenResponse | TelegramPendingResponse:
+    if isinstance(result, str):
+        return TelegramPendingResponse(telegram_confirmation_url=result)
+    _set_session_cookies(response, result, settings)
+    return _token_response(result)
 
 
 def _set_session_cookies(response: Response, result: AuthResult, settings: Settings) -> None:

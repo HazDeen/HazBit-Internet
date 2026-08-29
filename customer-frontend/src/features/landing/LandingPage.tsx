@@ -16,7 +16,7 @@ interface LandingPageProps {
 }
 
 const steps = [
-  { number: "01", icon: UserPlus, en: "Enter your email", ru: "Укажите почту", enText: "One code creates or opens your account.", ruText: "Один код создаст или откроет аккаунт." },
+  { number: "01", icon: UserPlus, en: "Create an account", ru: "Создайте аккаунт", enText: "Choose password, Google or Telegram and verify your email.", ruText: "Выберите пароль, Google или Telegram и подтвердите почту." },
   { number: "02", icon: MonitorSmartphone, en: "Add a device", ru: "Добавьте устройство", enText: "Copy the private link to your VLESS client.", ruText: "Откройте приватную ссылку в VLESS-клиенте." },
   { number: "03", icon: ShieldCheck, en: "Stay protected", ru: "Оставайтесь под защитой", enText: "Hazbit keeps access, devices and family in sync.", ruText: "Hazbit синхронизирует доступ, устройства и семью." },
 ];
@@ -39,7 +39,7 @@ export function LandingPage({ theme, onThemeChange, authenticated, onConnect, on
           <button className="public-primary" onClick={primaryAction}><Zap size={17} />{authenticated ? t("Open client panel", "Открыть панель клиента") : t("Connect Hazbit", "Подключить Hazbit")}<ArrowRight size={17} /></button>
           <a className="public-secondary" href="#how"><Play size={15} />{t("How it works", "Как это работает")}</a>
         </div>
-        <div className="public-hero__trust"><span><Check />VLESS</span><span><Check />{t("Passwordless access", "Вход без пароля")}</span><span><Check />{t("Family ready", "Для всей семьи")}</span></div>
+        <div className="public-hero__trust"><span><Check />VLESS</span><span><Check />{t("Flexible secure sign-in", "Гибкий защищённый вход")}</span><span><Check />{t("Family ready", "Для всей семьи")}</span></div>
       </div>
       <div className="public-hero__visual">
         <div className="public-orbit-caption public-orbit-caption--top"><span />{t("Private route", "Приватный маршрут")}<b>{t("Active", "Активен")}</b></div>

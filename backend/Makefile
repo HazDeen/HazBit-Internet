@@ -5,7 +5,7 @@ PYTEST := .venv/bin/pytest
 UVICORN := .venv/bin/uvicorn
 ALEMBIC := .venv/bin/alembic
 
-.PHONY: install run worker-vpn worker-payments worker-referrals worker-telegram telegram-webhooks lint format typecheck test test-integration check migrate revision
+.PHONY: install run worker-vpn worker-payments worker-referrals worker-telegram telegram-webhooks telegram-status lint format typecheck test test-integration check migrate revision
 
 install:
 	python3 -m venv .venv
@@ -28,6 +28,9 @@ worker-telegram:
 
 telegram-webhooks:
 	$(PYTHON) -m app.workers.setup_telegram_bots
+
+telegram-status:
+	$(PYTHON) -m app.workers.check_telegram_bots
 
 lint:
 	$(RUFF) check .
