@@ -142,11 +142,19 @@ services:
     depends_on:
       platform:
         condition: service_healthy
-    networks: [backend]
+    networks:
+      backend:
+      public-proxy:
+        aliases:
+          - hazbit-web
 
 networks:
   backend:
     driver: bridge
+    
+  public-proxy:
+    name: hazbit-public
+    external: true
 
 volumes:
   postgres_data:
