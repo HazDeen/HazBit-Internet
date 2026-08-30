@@ -44,6 +44,12 @@ def _url_button(text: str, url: str) -> dict[str, Any]:
     return {"text": text, "url": url}
 
 
+def _message_command(text: str | None) -> str:
+    # Media/service messages have no text; whitespace also produces an empty list.
+    words = (text or "").split(maxsplit=1)
+    return words[0].split("@", 1)[0].lower() if words else ""
+
+
 class TelegramBotService:
     def __init__(
         self,
@@ -88,7 +94,9 @@ class TelegramBotService:
             if message.successful_payment is not None:
                 await self._settle_telegram_payment(message)
                 return
-            command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower()
+            command = _message_command(message.text)
+            if not command:
+                return
             if command in {"/start", "/help"}:
                 await self._customer_start(message)
             elif command in {"/status", "/profile", "/subscription", "/balance"}:
@@ -141,7 +149,7 @@ class TelegramBotService:
         message = update.message
         if message is None:
             return
-        command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower()
+        command = _message_command(message.text)
         if command in {"/start", "/help", "/queue"}:
             await self._operations.send_message(
                 message.chat.id,

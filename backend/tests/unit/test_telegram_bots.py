@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from app.core.config import Settings
 from app.core.errors import ApplicationError
 from app.core.ids import uuid7
 from app.main import create_app
+from app.modules.auth.enums import Permission, Role, UserStatus
+from app.modules.auth.rate_limit import RateLimiter
 from app.modules.bots.callbacks import CallbackCodec
 from app.modules.bots.dependencies import get_telegram_bot_service, get_telegram_update_gate
 from app.modules.bots.notifications import (
     TelegramNotificationClaim,
     TelegramNotificationProcessor,
 )
+from app.modules.bots.repository import BotIdentity
 from app.modules.bots.schemas import TelegramUpdate
+from app.modules.bots.service import TelegramBotService
+from app.modules.bots.telegram_api import TelegramBotClient
+from app.modules.payments.service import PaymentService
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class FakeBotService:
@@ -186,3 +194,112 @@ def test_public_probe_never_dispatches_update(test_settings: Settings, kind: str
     assert response.json()["code"] == "telegram_webhook_forbidden"
     assert service.customer_updates == service.operations_updates == []
     assert gate.completed == []
+
+
+@pytest.fixture
+def real_bot_service(
+    test_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TelegramBotService, AsyncMock, AsyncMock]:
+    customer = AsyncMock(spec=TelegramBotClient)
+    operations = AsyncMock(spec=TelegramBotClient)
+    service = TelegramBotService(
+        session=AsyncMock(spec=AsyncSession),
+        settings=test_settings,
+        rate_limiter=AsyncMock(spec=RateLimiter),
+        customer_client=customer,
+        operations_client=operations,
+        callbacks=CallbackCodec("callback-secret", default_ttl_seconds=900),
+        payment_service=Mock(spec=PaymentService),
+    )
+    identity = BotIdentity(
+        user_id=uuid7(),
+        locale="ru",
+        status=UserStatus.ACTIVE.value,
+        roles=frozenset({Role.SUPER_ADMIN.value}),
+        permissions=frozenset(Permission),
+    )
+    monkeypatch.setattr(service._repository, "identity", AsyncMock(return_value=identity))
+    return service, customer, operations
+
+
+@pytest.mark.parametrize("kind", ["customer", "operations"])
+@pytest.mark.parametrize(
+    "message_fields",
+    [
+        {},
+        {"text": None},
+        {"text": ""},
+        {"text": " \t\n\u00a0"},
+        {"photo": [{"file_id": "test-photo"}]},
+        {"sticker": {"file_id": "test-sticker"}},
+        {"voice": {"file_id": "test-voice"}},
+        {"new_chat_members": [{"id": 1002, "first_name": "Member"}]},
+    ],
+)
+def test_real_webhook_acknowledges_non_text_updates(
+    test_settings: Settings,
+    real_bot_service: tuple[TelegramBotService, AsyncMock, AsyncMock],
+    kind: str,
+    message_fields: dict[str, Any],
+) -> None:
+    service, customer, operations = real_bot_service
+    app = create_app(test_settings)
+    gate = FakeUpdateGate()
+    app.dependency_overrides[get_telegram_bot_service] = lambda: service
+    app.dependency_overrides[get_telegram_update_gate] = lambda: gate
+    payload = _update()
+    del payload["message"]["text"]
+    payload["message"].update(message_fields)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            f"/api/v1/bots/{kind}/webhook",
+            json=payload,
+            headers={"X-Telegram-Bot-Api-Secret-Token": f"local-{kind}-webhook-secret"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert gate.completed == [(kind, 42)]
+    customer.send_message.assert_not_awaited()
+    operations.send_message.assert_not_awaited()
+
+
+@pytest.mark.parametrize("kind", ["customer", "operations"])
+@pytest.mark.parametrize("text", ["/start", "/START@TestBot", "  /start\targument ", "/help"])
+async def test_real_start_commands_still_reply(
+    real_bot_service: tuple[TelegramBotService, AsyncMock, AsyncMock],
+    kind: str,
+    text: str,
+) -> None:
+    service, customer, operations = real_bot_service
+    payload = _update()
+    payload["message"]["text"] = text
+    await getattr(service, f"{kind}_update")(TelegramUpdate.model_validate(payload))
+    client = customer if kind == "customer" else operations
+    client.send_message.assert_awaited_once()
+    assert client.send_message.await_args.args[0] == 1001
+    assert client.send_message.await_args.kwargs["reply_markup"]["inline_keyboard"]
+
+
+async def test_non_text_payment_is_dispatched_before_command_parsing(
+    real_bot_service: tuple[TelegramBotService, AsyncMock, AsyncMock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, customer, _ = real_bot_service
+    settle_payment = AsyncMock()
+    monkeypatch.setattr(service, "_settle_telegram_payment", settle_payment)
+    payload = _update()
+    del payload["message"]["text"]
+    payload["message"]["successful_payment"] = {
+        "currency": "RUB",
+        "total_amount": 49900,
+        "invoice_payload": "signed",
+        "telegram_payment_charge_id": "tg-charge",
+        "provider_payment_charge_id": "provider-charge",
+    }
+    update = TelegramUpdate.model_validate(payload)
+    await service.customer_update(update)
+    settle_payment.assert_awaited_once_with(update.message)
+    customer.send_message.assert_not_awaited()
