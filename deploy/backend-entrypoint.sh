@@ -17,10 +17,8 @@ done
 python -m app.operations.cli bootstrap
 python -m app.operations.cli preflight
 
-if [ "${HAZBIT_CONFIGURE_TELEGRAM_WEBHOOKS:-true}" = "true" ]; then
-    if ! python -m app.workers.setup_telegram_bots; then
-        echo "Telegram webhook setup failed; API and workers will still start" >&2
-    fi
-fi
+# Webhooks are configured by deploy/scripts/launch.sh after this container is
+# healthy. Calling Telegram before Uvicorn starts lets Telegram deliver an
+# update to an API that is not listening yet, which produces a transient 502.
 
 exec "$@"

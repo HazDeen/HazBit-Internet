@@ -41,16 +41,23 @@ compose run --rm --no-deps --entrypoint python platform \
 compose run --rm --no-deps --entrypoint python remnawave-adapter \
     -c "from remnawave_adapter.config import Settings; Settings(); print('Adapter settings are valid')"
 
-echo "[4/7] Starting the production stack"
+echo "[4/8] Starting the production stack"
 compose up -d
 
-echo "[5/7] Verifying launch readiness"
+echo "[5/8] Verifying launch readiness"
 compose exec -T platform python -m app.operations.cli preflight
 
-echo "[6/7] Verifying Telegram bot identities and webhooks"
+if [ "${HAZBIT_CONFIGURE_TELEGRAM_WEBHOOKS:-true}" = "true" ] && [ "${HAZBIT_FEATURES__TELEGRAM_BOTS:-true}" = "true" ]; then
+    echo "[6/8] Configuring Telegram bot webhooks"
+    compose exec -T platform python -m app.workers.setup_telegram_bots
+else
+    echo "[6/8] Skipping Telegram webhook configuration"
+fi
+
+echo "[7/8] Verifying Telegram bot identities and webhooks"
 compose exec -T platform python -m app.workers.check_telegram_bots
 
-echo "[7/7] Sending SMTP delivery test to the first super admin"
+echo "[8/8] Sending SMTP delivery test to the first super admin"
 compose exec -T platform python -m app.operations.cli test-email
 compose ps
 
