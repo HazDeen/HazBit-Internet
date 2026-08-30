@@ -29,30 +29,28 @@ compose() {
         "$@"
 }
 
-echo "[1/7] Validating Docker Compose configuration"
+echo "[1/8] Validating Docker Compose configuration"
 compose config --quiet
 
-echo "[2/7] Building production images"
+echo "[2/8] Building production images"
 compose build platform remnawave-adapter caddy
 
-echo "[3/7] Validating production application settings"
+echo "[3/8] Validating production application settings"
 compose run --rm --no-deps --entrypoint python platform \
     -c "from app.core.config import Settings; Settings(); print('Production settings are valid')"
 compose run --rm --no-deps --entrypoint python remnawave-adapter \
     -c "from remnawave_adapter.config import Settings; Settings(); print('Adapter settings are valid')"
 
 echo "[4/8] Starting the production stack"
-compose up -d
+compose up -d --wait --wait-timeout 180
 
 echo "[5/8] Verifying launch readiness"
 compose exec -T platform python -m app.operations.cli preflight
 
-if [ "${HAZBIT_CONFIGURE_TELEGRAM_WEBHOOKS:-true}" = "true" ] && [ "${HAZBIT_FEATURES__TELEGRAM_BOTS:-true}" = "true" ]; then
-    echo "[6/8] Configuring Telegram bot webhooks"
-    compose exec -T platform python -m app.workers.setup_telegram_bots
-else
-    echo "[6/8] Skipping Telegram webhook configuration"
-fi
+echo "[6/8] Configuring Telegram bot webhooks"
+# Read feature flags inside the container: --env-file does not export them
+# into the host shell running this script.
+compose exec -T platform python -m app.workers.setup_telegram_bots
 
 echo "[7/8] Verifying Telegram bot identities and webhooks"
 compose exec -T platform python -m app.workers.check_telegram_bots

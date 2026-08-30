@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from typing import Any, cast
 
@@ -8,6 +9,19 @@ import structlog
 from structlog.types import Processor
 
 from app.core.config import Settings
+
+_TELEGRAM_TOKEN = re.compile(r"(\bbot\d+)(?::|%3[aA])[A-Za-z0-9_-]+")
+
+
+def redact_telegram_tokens(value: str) -> str:
+    return _TELEGRAM_TOKEN.sub(r"\1:[REDACTED]", value)
+
+
+class _RedactingFormatter(structlog.stdlib.ProcessorFormatter):
+    def format(self, record: logging.LogRecord) -> str:
+        # Redact after exception formatting as well: httpx includes the bot token
+        # in request URLs in both INFO messages and chained exception tracebacks.
+        return redact_telegram_tokens(super().format(record))
 
 
 def _shared_processors() -> list[Processor]:
@@ -30,7 +44,7 @@ def configure_logging(settings: Settings) -> None:
         renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
 
     processors = [*_shared_processors(), structlog.stdlib.ProcessorFormatter.wrap_for_formatter]
-    formatter = structlog.stdlib.ProcessorFormatter(
+    formatter = _RedactingFormatter(
         foreign_pre_chain=_shared_processors(),
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,

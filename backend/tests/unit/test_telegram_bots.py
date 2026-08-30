@@ -169,3 +169,20 @@ def test_duplicate_webhook_is_acknowledged_without_dispatch(test_settings: Setti
 
     assert response.json() == {"ok": True, "duplicate": True}
     assert service.customer_updates == []
+
+
+@pytest.mark.parametrize("kind", ["customer", "operations"])
+def test_public_probe_never_dispatches_update(test_settings: Settings, kind: str) -> None:
+    app = create_app(test_settings)
+    service = FakeBotService()
+    gate = FakeUpdateGate()
+    app.dependency_overrides[get_telegram_bot_service] = lambda: service
+    app.dependency_overrides[get_telegram_update_gate] = lambda: gate
+
+    with TestClient(app) as client:
+        response = client.post(f"/api/v1/bots/{kind}/webhook", json={"update_id": 0})
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "telegram_webhook_forbidden"
+    assert service.customer_updates == service.operations_updates == []
+    assert gate.completed == []

@@ -10,11 +10,18 @@ class TelegramApiError(RuntimeError):
 
 
 class TelegramBotClient:
-    def __init__(self, token: str, *, timeout_seconds: float = 10.0) -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        timeout_seconds: float = 10.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._token = token
         self._client = httpx.AsyncClient(
             base_url=f"https://api.telegram.org/bot{token}/",
             timeout=httpx.Timeout(timeout_seconds),
+            transport=transport,
         )
 
     @property
@@ -31,10 +38,18 @@ class TelegramBotClient:
             response = await self._client.post(method, json=payload)
             response.raise_for_status()
             body = response.json()
+        except httpx.HTTPStatusError as exc:
+            # Raw httpx exception chains contain credentials in the request URL.
+            raise TelegramApiError(
+                f"Telegram API {method}: HTTP {exc.response.status_code}"
+            ) from None
         except (httpx.HTTPError, ValueError) as exc:
-            raise TelegramApiError(f"Telegram API request failed for {method}") from exc
+            raise TelegramApiError(f"Telegram API {method}: {type(exc).__name__}") from None
+        if not isinstance(body, dict):
+            raise TelegramApiError(f"Telegram API {method}: invalid response")
         if not body.get("ok"):
-            raise TelegramApiError(str(body.get("description") or "Telegram API rejected request"))
+            description = str(body.get("description") or "Telegram API rejected request")
+            raise TelegramApiError(description.replace(self._token, "[REDACTED]"))
         return body.get("result")
 
     async def send_message(
